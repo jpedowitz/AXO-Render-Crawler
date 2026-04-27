@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: axo-render-crawler
+    env: python
+    plan: standard
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: CRAWL_CONCURRENCY
+        value: "150"
+      - key: SITEMAP_CONCURRENCY
+        value: "50"
+      - key: REQUEST_TIMEOUT_SECONDS
+        value: "12"
+      - key: DEFAULT_LIMIT
+        value: "15000"
+      - key: MAX_LIMIT
+        value: "100000"
+      - key: MAX_BYTES_PER_PAGE
+        value: "750000"
+      - key: MAX_CONTENT_CHARS
+        value: "50000"
