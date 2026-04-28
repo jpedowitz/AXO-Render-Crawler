@@ -9,13 +9,13 @@ services:
       - key: PYTHON_VERSION
         value: "3.11.9"
       - key: CRAWL_CONCURRENCY
-        value: "250"
+        value: "500"
       - key: PER_HOST_CONCURRENCY
         value: "50"
       - key: SITEMAP_CONCURRENCY
         value: "100"
       - key: REQUEST_TIMEOUT_SECONDS
-        value: "8"
+        value: "5"
       - key: DEFAULT_LIMIT
         value: "15000"
       - key: MAX_LIMIT
