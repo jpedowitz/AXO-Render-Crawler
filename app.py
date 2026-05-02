@@ -341,7 +341,11 @@ async def crawl_job(job_id, payload):
                         if page["contentHash"] not in content_hashes or page["confidence"]=="url_only":
                             content_hashes.add(page["contentHash"]); pages.append(page); append_jsonl(jsonl_path,page)
                         elapsed=time.time()-started
-                        enough = (len(pages)>=min(ANALYSIS_READY_MIN_PAGES,max(1,len(urls))) or elapsed>=ANALYSIS_READY_MAX_SECONDS) and len(pages)>0
+                        pages_target = min(ANALYSIS_READY_MIN_PAGES, max(1, len(urls)))
+                        pages_done = len(pages) >= pages_target
+                        # Time fallback fires only if truly stalled: elapsed is extreme OR 80%+ of URLs processed
+                        time_fallback = elapsed >= ANALYSIS_READY_MAX_SECONDS and (i >= len(urls) * 0.8 or elapsed >= ANALYSIS_READY_MAX_SECONDS * 2)
+                        enough = (pages_done or time_fallback) and len(pages) > 0
                         should_update = i%25==0 or i==len(urls) or time.time()-last_summary_at>5 or (enough and not analysis_ready_sent)
                         if should_update:
                             last_summary_at=time.time(); partial=build_summary(start_url,urls,pages,failures,discovered,False)

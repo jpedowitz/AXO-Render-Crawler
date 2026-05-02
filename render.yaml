@@ -27,6 +27,6 @@ services:
       - key: ANALYSIS_READY_MIN_PAGES
         value: "750"
       - key: ANALYSIS_READY_MAX_SECONDS
-        value: "60"
+        value: "300"
       - key: HTTP2_ENABLED
         value: "1"
