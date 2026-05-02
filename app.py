@@ -11,7 +11,7 @@ from starlette.applications import Starlette
 from starlette.background import BackgroundTask
 from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import FileResponse, JSONResponse, Response
 from starlette.routing import Route
 
 APP_NAME = "AXO Render Crawler"
@@ -341,11 +341,7 @@ async def crawl_job(job_id, payload):
                         if page["contentHash"] not in content_hashes or page["confidence"]=="url_only":
                             content_hashes.add(page["contentHash"]); pages.append(page); append_jsonl(jsonl_path,page)
                         elapsed=time.time()-started
-                        pages_target = min(ANALYSIS_READY_MIN_PAGES, max(1, len(urls)))
-                        pages_done = len(pages) >= pages_target
-                        # Time fallback fires only if truly stalled: elapsed is extreme OR 80%+ of URLs processed
-                        time_fallback = elapsed >= ANALYSIS_READY_MAX_SECONDS and (i >= len(urls) * 0.8 or elapsed >= ANALYSIS_READY_MAX_SECONDS * 2)
-                        enough = (pages_done or time_fallback) and len(pages) > 0
+                        enough = (len(pages)>=min(ANALYSIS_READY_MIN_PAGES,max(1,len(urls))) or elapsed>=ANALYSIS_READY_MAX_SECONDS) and len(pages)>0
                         should_update = i%25==0 or i==len(urls) or time.time()-last_summary_at>5 or (enough and not analysis_ready_sent)
                         if should_update:
                             last_summary_at=time.time(); partial=build_summary(start_url,urls,pages,failures,discovered,False)
@@ -408,6 +404,17 @@ async def crawl_list(request):
     jobs.sort(key=lambda j:j.get("createdAt",""), reverse=True)
     return JSONResponse({"jobs":jobs[:100]})
 
-routes=[Route("/",root),Route("/health",health),Route("/crawl/start",crawl_start,methods=["POST"]),Route("/crawl/status/{job_id}",crawl_status),Route("/crawl/result/{job_id}",crawl_result),Route("/crawl/list",crawl_list)]
+async def diagnostic(request):
+    """Serve the AXO Diagnostic HTML tool as a standalone page."""
+    html_path = Path(__file__).parent / "AXO_Diagnostic_n8n.html"
+    if not html_path.exists():
+        return Response("AXO Diagnostic not found. Deploy AXO_Diagnostic_n8n.html alongside app.py.", status_code=404)
+    return FileResponse(str(html_path), media_type="text/html", headers={
+        "X-Frame-Options": "ALLOWALL",
+        "Content-Security-Policy": "frame-ancestors *",
+        "Cache-Control": "public, max-age=3600"
+    })
+
+routes=[Route("/",root),Route("/health",health),Route("/diagnostic",diagnostic),Route("/crawl/start",crawl_start,methods=["POST"]),Route("/crawl/status/{job_id}",crawl_status),Route("/crawl/result/{job_id}",crawl_result),Route("/crawl/list",crawl_list)]
 app=Starlette(debug=False,routes=routes,on_startup=[startup])
 app.add_middleware(CORSMiddleware,allow_origins=["*"],allow_methods=["*"],allow_headers=["*"])
