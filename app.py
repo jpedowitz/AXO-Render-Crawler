@@ -306,15 +306,6 @@ def build_summary(start_url, urls, pages, failures, discovered, full_complete):
         "crawlFinishedAt": now_iso() if full_complete else None
     }
 
-async def send_callback(callback_url, job_id, status, summary=None):
-    try:
-        payload = {"jobId": job_id, "status": status}
-        if summary is not None:
-            payload["summary"] = summary
-        async with httpx.AsyncClient(timeout=15) as client:
-            await client.post(callback_url, json=payload)
-    except Exception: pass
-
 async def crawl_job(job_id, payload):
     started = time.time()
     start_url = payload["startUrl"]; limit = max(1, min(MAX_LIMIT, int(payload.get("limit", DEFAULT_LIMIT))))
@@ -390,6 +381,23 @@ async def crawl_status(request):
     job=JOBS.get(request.path_params["job_id"])
     if not job: return JSONResponse({"error":"job not found"}, status_code=404)
     return JSONResponse({k:v for k,v in job.items() if k not in ("result","partialSummary","inventorySummary")})
+async def crawl_pages(request):
+    """Return pages in paginated chunks from JSONL. offset + limit params."""
+    job_id = request.path_params["job_id"]
+    offset = int(request.query_params.get("offset", 0))
+    limit  = int(request.query_params.get("limit", 100))
+    job = JOBS.get(job_id)
+    if not job: return JSONResponse({"error": "job not found"}, status_code=404)
+    jsonl_path = job.get("jsonlPath")
+    if not jsonl_path or not Path(jsonl_path).exists():
+        # Fall back to partialSummary pages if JSONL gone
+        ps = job.get("partialSummary") or {}
+        pages = ps.get("recommendedPagesForLLM", [])
+        return JSONResponse({"pages": pages[offset:offset+limit], "total": len(pages), "offset": offset, "limit": limit, "source": "partial_summary"})
+    all_pages = [json.loads(line) for line in Path(jsonl_path).open("r", encoding="utf-8") if line.strip()]
+    chunk = all_pages[offset:offset+limit]
+    return JSONResponse({"pages": chunk, "total": len(all_pages), "offset": offset, "limit": limit, "source": "jsonl"})
+
 async def crawl_result(request):
     job_id=request.path_params["job_id"]; mode=request.query_params.get("mode","final"); include_pages=request.query_params.get("includePages","false").lower() in ("1","true","yes")
     job=JOBS.get(job_id)
@@ -403,11 +411,38 @@ async def crawl_result(request):
     if mode in ("analysis","partial") and job.get("analysisReady") and job.get("partialSummary"): return JSONResponse({"job":public,"summary":job.get("partialSummary"),"partial":True})
     if mode=="inventory" and job.get("inventorySummary"): return JSONResponse({"job":public,"summary":job.get("inventorySummary"),"inventory":True})
     return JSONResponse(public)
+
+async def send_callback(callback_url, job_id, status, summary=None):
+    try:
+        payload = {"jobId": job_id, "status": status}
+        if summary is not None:
+            # Send lean summary -- capped to avoid n8n payload limits (~100KB max)
+            lean = {
+                "pagesFetched":    summary.get("pagesFetched", 0),
+                "pagesFailed":     summary.get("pagesFailed", 0),
+                "urlsFound":       summary.get("urlsFound", 0),
+                "totalDiscovered": summary.get("totalDiscovered", 0),
+                "avgAeoSignal":    summary.get("avgAeoSignal", 0),
+                "highAeo":         summary.get("highAeo", 0),
+                "midAeo":          summary.get("midAeo", 0),
+                "lowAeo":          summary.get("lowAeo", 0),
+                "typeDistribution":summary.get("typeDistribution", {}),
+                "topSignals":      dict(list(summary.get("topSignals", {}).items())[:20]),
+                "recommendedPagesForLLM": summary.get("recommendedPagesForLLM", [])[:30],
+                "topPages":        summary.get("topPages", [])[:20],
+                "gapPages":        summary.get("gapPages", [])[:20],
+                "partial":         summary.get("partial", False),
+            }
+            payload["summary"] = lean
+        async with httpx.AsyncClient(timeout=15) as client:
+            await client.post(callback_url, json=payload)
+    except Exception: pass
+
 async def crawl_list(request):
     async with JOB_LOCK: jobs=[{k:v for k,v in j.items() if k not in ("result","partialSummary","inventorySummary")} for j in JOBS.values()]
     jobs.sort(key=lambda j:j.get("createdAt",""), reverse=True)
     return JSONResponse({"jobs":jobs[:100]})
 
-routes=[Route("/",root),Route("/health",health),Route("/crawl/start",crawl_start,methods=["POST"]),Route("/crawl/status/{job_id}",crawl_status),Route("/crawl/result/{job_id}",crawl_result),Route("/crawl/list",crawl_list)]
+routes=[Route("/",root),Route("/health",health),Route("/diagnostic",diagnostic),Route("/crawl/start",crawl_start,methods=["POST"]),Route("/crawl/status/{job_id}",crawl_status),Route("/crawl/result/{job_id}",crawl_result),Route("/crawl/pages/{job_id}",crawl_pages),Route("/crawl/list",crawl_list)]
 app=Starlette(debug=False,routes=routes,on_startup=[startup])
 app.add_middleware(CORSMiddleware,allow_origins=["*"],allow_methods=["*"],allow_headers=["*"])
