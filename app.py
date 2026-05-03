@@ -538,5 +538,18 @@ class HubSpotFrameMiddleware:
 
 
 app=Starlette(debug=False,routes=routes,on_startup=[startup])
+
+# Allow the diagnostic UI to be embedded in HubSpot pages.
+# This must be registered on the ASGI app; defining the middleware class alone is not enough.
+app.add_middleware(HubSpotFrameMiddleware)
+
+# Basic CORS support for the HubSpot-hosted page and n8n/browser requests.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 app.add_middleware(CORSMiddleware,allow_origins=["*"],allow_methods=["*"],allow_headers=["*"])
 app.add_middleware(HubSpotFrameMiddleware)
