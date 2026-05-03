@@ -772,6 +772,7 @@ def build_lean_callback_summary(metadata: List[Dict[str, Any]], failures: List[D
 
 
 
+def callback_allowed(callback_url: Optional[str]) -> bool:
     if not callback_url:
         return False
     if ALLOW_ALL_CALLBACKS:
