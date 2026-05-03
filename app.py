@@ -443,6 +443,6 @@ async def crawl_list(request):
     jobs.sort(key=lambda j:j.get("createdAt",""), reverse=True)
     return JSONResponse({"jobs":jobs[:100]})
 
-routes=[Route("/",root),Route("/health",health),Route("/diagnostic",diagnostic),Route("/crawl/start",crawl_start,methods=["POST"]),Route("/crawl/status/{job_id}",crawl_status),Route("/crawl/result/{job_id}",crawl_result),Route("/crawl/pages/{job_id}",crawl_pages),Route("/crawl/list",crawl_list)]
+routes=[Route("/",root),Route("/health",health),Route("/crawl/start",crawl_start,methods=["POST"]),Route("/crawl/status/{job_id}",crawl_status),Route("/crawl/result/{job_id}",crawl_result),Route("/crawl/pages/{job_id}",crawl_pages),Route("/crawl/list",crawl_list)]
 app=Starlette(debug=False,routes=routes,on_startup=[startup])
 app.add_middleware(CORSMiddleware,allow_origins=["*"],allow_methods=["*"],allow_headers=["*"])
