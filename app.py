@@ -1256,3 +1256,19 @@ app.add_middleware(
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
+
+
+# Patch applied post-write -- add diagnostic route
+_original_routes = routes[:]
+
+async def _diagnostic(request):
+    from starlette.responses import HTMLResponse
+    html_path = Path(os.getenv("DIAGNOSTIC_HTML_PATH", "AXO_Diagnostic_n8n.html"))
+    if not html_path.exists():
+        html_path = Path(__file__).parent / "AXO_Diagnostic_n8n.html"
+    if not html_path.exists():
+        return HTMLResponse("<h2>AXO Diagnostic UI not found</h2><p>Place AXO_Diagnostic_n8n.html alongside app.py and redeploy.</p>", status_code=404)
+    return HTMLResponse(html_path.read_text(encoding="utf-8"))
+
+routes.append(Route("/diagnostic", _diagnostic))
+app.router.routes = routes
