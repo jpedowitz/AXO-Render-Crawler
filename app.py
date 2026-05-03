@@ -11,7 +11,7 @@ from starlette.applications import Starlette
 from starlette.background import BackgroundTask
 from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import Request
-from starlette.responses import FileResponse, JSONResponse, Response
+from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 APP_NAME = "AXO Render Crawler"
@@ -306,9 +306,13 @@ def build_summary(start_url, urls, pages, failures, discovered, full_complete):
         "crawlFinishedAt": now_iso() if full_complete else None
     }
 
-async def send_callback(callback_url, job_id, status):
+async def send_callback(callback_url, job_id, status, summary=None):
     try:
-        async with httpx.AsyncClient(timeout=10) as client: await client.post(callback_url, json={"jobId":job_id, "status":status})
+        payload = {"jobId": job_id, "status": status}
+        if summary is not None:
+            payload["summary"] = summary
+        async with httpx.AsyncClient(timeout=15) as client:
+            await client.post(callback_url, json=payload)
     except Exception: pass
 
 async def crawl_job(job_id, payload):
@@ -349,12 +353,12 @@ async def crawl_job(job_id, payload):
                                 JOBS[job_id].update({"pagesAttempted":i,"pagesFetched":len(pages),"pagesFailed":len(failures),"elapsedSeconds":round(elapsed,1),"analysisReady":bool(enough),"analysisReadyAt":JOBS[job_id].get("analysisReadyAt") or (now_iso() if enough else None),"partialSummary":partial,"updatedAt":now_iso()})
                             if enough and not analysis_ready_sent:
                                 analysis_ready_sent=True
-                                if callback_url: await send_callback(callback_url,job_id,"analysis_ready")
+                                if callback_url: await send_callback(callback_url,job_id,"analysis_ready",partial)
             await asyncio.gather(*[process_one(i+1,u) for i,u in enumerate(urls)])
         final=build_summary(start_url,urls,pages,failures,discovered,True)
         async with JOB_LOCK:
             JOBS[job_id].update({"status":"complete","stage":"complete","completedAt":now_iso(),"updatedAt":now_iso(),"pagesAttempted":len(urls),"pagesFetched":len(pages),"pagesFailed":len(failures),"elapsedSeconds":round(time.time()-started,1),"analysisReady":True,"jsonlPath":str(jsonl_path),"result":{"summary":final,"failures":failures[:500]}})
-        if callback_url: await send_callback(callback_url,job_id,"complete")
+        if callback_url: await send_callback(callback_url,job_id,"complete",final)
     except Exception as e:
         async with JOB_LOCK: JOBS[job_id].update({"status":"failed","stage":"failed","error":str(e)[:1000],"updatedAt":now_iso()})
 
@@ -404,17 +408,6 @@ async def crawl_list(request):
     jobs.sort(key=lambda j:j.get("createdAt",""), reverse=True)
     return JSONResponse({"jobs":jobs[:100]})
 
-async def diagnostic(request):
-    """Serve the AXO Diagnostic HTML tool as a standalone page."""
-    html_path = Path(__file__).parent / "AXO_Diagnostic_n8n.html"
-    if not html_path.exists():
-        return Response("AXO Diagnostic not found. Deploy AXO_Diagnostic_n8n.html alongside app.py.", status_code=404)
-    return FileResponse(str(html_path), media_type="text/html", headers={
-        "X-Frame-Options": "ALLOWALL",
-        "Content-Security-Policy": "frame-ancestors *",
-        "Cache-Control": "public, max-age=3600"
-    })
-
-routes=[Route("/",root),Route("/health",health),Route("/diagnostic",diagnostic),Route("/crawl/start",crawl_start,methods=["POST"]),Route("/crawl/status/{job_id}",crawl_status),Route("/crawl/result/{job_id}",crawl_result),Route("/crawl/list",crawl_list)]
+routes=[Route("/",root),Route("/health",health),Route("/crawl/start",crawl_start,methods=["POST"]),Route("/crawl/status/{job_id}",crawl_status),Route("/crawl/result/{job_id}",crawl_result),Route("/crawl/list",crawl_list)]
 app=Starlette(debug=False,routes=routes,on_startup=[startup])
 app.add_middleware(CORSMiddleware,allow_origins=["*"],allow_methods=["*"],allow_headers=["*"])
