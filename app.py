@@ -100,6 +100,17 @@ ALLOWED_CALLBACK_HOSTS = {
 }
 ALLOW_ALL_CALLBACKS = os.getenv("ALLOW_ALL_CALLBACKS", "1").lower() in {"1", "true", "yes", "on"}
 
+# Front-end HTML. Render deploys from the project root, so keep the HTML file
+# beside app.py. HTML_FILE can override this. We also search common names so
+# uploads like AXO_Diagnostic_n8n(1).html do not 404.
+HTML_FILE = os.getenv("HTML_FILE", "AXO_Diagnostic_n8n.html")
+HTML_CANDIDATE_NAMES = [
+    HTML_FILE,
+    "AXO_Diagnostic_n8n.html",
+    "AXO_Diagnostic_n8n(1).html",
+    "index.html",
+]
+
 STORE_DIR.mkdir(parents=True, exist_ok=True)
 JOBS: Dict[str, Dict[str, Any]] = {}
 JOB_LOCK = asyncio.Lock()
@@ -1069,13 +1080,48 @@ async def startup() -> None:
     asyncio.create_task(cleanup_loop())
 
 
-async def root(request: Request) -> JSONResponse:
+def find_html_file() -> Optional[Path]:
+    """Return the diagnostic UI file if it is present in the deployment."""
+    base = Path(__file__).resolve().parent
+    checked: List[Path] = []
+    for name in HTML_CANDIDATE_NAMES:
+        if not name:
+            continue
+        candidate = Path(name)
+        if not candidate.is_absolute():
+            candidate = base / candidate
+        checked.append(candidate)
+        if candidate.exists() and candidate.is_file():
+            return candidate
+
+    # Last-resort glob so minor filename changes do not break the UI.
+    for candidate in sorted(base.glob("AXO_Diagnostic*.html")):
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+async def root(request: Request):
+    html_path = find_html_file()
+    if html_path:
+        return FileResponse(html_path, media_type="text/html; charset=utf-8")
+
+    base = Path(__file__).resolve().parent
     return JSONResponse({
         "service": APP_NAME,
         "version": VERSION,
         "ok": True,
         "role": "enterprise_corpus_builder",
-    })
+        "ui": "not_found",
+        "message": "Diagnostic HTML file not found. Put AXO_Diagnostic_n8n.html beside app.py or set HTML_FILE.",
+        "expectedFiles": HTML_CANDIDATE_NAMES,
+        "projectDir": str(base),
+        "htmlFilesInProjectDir": [p.name for p in sorted(base.glob("*.html"))],
+    }, status_code=404)
+
+
+async def diagnostic_ui(request: Request):
+    return await root(request)
 
 
 async def health(request: Request) -> JSONResponse:
@@ -1239,6 +1285,9 @@ async def robots_note(request: Request) -> PlainTextResponse:
 
 routes = [
     Route("/", root),
+    Route("/diagnostic", diagnostic_ui),
+    Route("/app", diagnostic_ui),
+    Route("/index.html", diagnostic_ui),
     Route("/health", health),
     Route("/robots-note", robots_note),
     Route("/crawl/start", crawl_start, methods=["POST"]),
