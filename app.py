@@ -523,25 +523,39 @@ async def crawl_list(request):
     return JSONResponse({"jobs":jobs[:100]})
 
 routes=[Route("/",root),Route("/diagnostic",diagnostic),Route("/app",app_page),Route("/index.html",diagnostic),Route("/favicon.ico",favicon),Route("/api",api_info),Route("/health",health),Route("/crawl/start",crawl_start,methods=["POST"]),Route("/crawl/status/{job_id}",crawl_status),Route("/crawl/result/{job_id}",crawl_result),Route("/crawl/pages/{job_id}",crawl_pages),Route("/crawl/list",crawl_list)]
-class HubSpotFrameMiddleware:
+class FrameEmbeddingMiddleware:
+    """Remove frame-blocking headers so the diagnostic can load inside HubSpot/custom-domain iframes.
+
+    Optional: set FRAME_ANCESTORS to a CSP value such as:
+      'self' https://*.hubspot.com https://*.hs-sites.com https://www.yourdomain.com
+    If FRAME_ANCESTORS is empty, no frame-ancestors CSP is sent, which allows embedding.
+    """
     def __init__(self, app):
         self.app = app
+        self.frame_ancestors = os.getenv("FRAME_ANCESTORS", "").strip()
+
     async def __call__(self, scope, receive, send):
         async def send_wrapper(message):
             if message.get("type") == "http.response.start":
-                headers = [(k, v) for k, v in message.get("headers", []) if k.lower() != b"x-frame-options"]
-                csp = b"frame-ancestors 'self' https://*.hubspot.com https://*.hs-sites.com https://*.hubspotpagebuilder.com https://*.hubspotusercontent-na1.net https://*.hubspotusercontent20.net;"
-                headers.append((b"content-security-policy", csp))
+                headers = []
+                for k, v in message.get("headers", []):
+                    lk = k.lower()
+                    # These are what cause Chrome/HubSpot to show "refused to connect" in iframes.
+                    if lk in (b"x-frame-options", b"frame-options"):
+                        continue
+                    # Remove existing CSP so a stale/restrictive frame-ancestors does not win.
+                    if lk == b"content-security-policy":
+                        continue
+                    headers.append((k, v))
+                if self.frame_ancestors:
+                    csp = f"frame-ancestors {self.frame_ancestors};".encode("utf-8")
+                    headers.append((b"content-security-policy", csp))
                 message["headers"] = headers
             await send(message)
         await self.app(scope, receive, send_wrapper)
 
 
 app=Starlette(debug=False,routes=routes,on_startup=[startup])
-
-# Allow the diagnostic UI to be embedded in HubSpot pages.
-# This must be registered on the ASGI app; defining the middleware class alone is not enough.
-app.add_middleware(HubSpotFrameMiddleware)
 
 # Basic CORS support for the HubSpot-hosted page and n8n/browser requests.
 app.add_middleware(
@@ -551,5 +565,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-app.add_middleware(CORSMiddleware,allow_origins=["*"],allow_methods=["*"],allow_headers=["*"])
-app.add_middleware(HubSpotFrameMiddleware)
+
+# Must be added after CORS so it runs first on the outbound response and strips any
+# frame-blocking headers. This allows HubSpot iframe embedding, including custom domains.
+app.add_middleware(FrameEmbeddingMiddleware)
