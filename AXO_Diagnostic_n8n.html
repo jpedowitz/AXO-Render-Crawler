@@ -2043,33 +2043,55 @@ function startDiagnostic() {
     const yourScore = score;
     // Helper: derive a display name and clean domain from a normalized competitor string
     const compDisplayName = c => {
-      // c is already a normalized bare domain (e.g. "alertmedia.com") or a name
       const domain = String(c).toLowerCase().trim();
       const root = domain.split('.')[0];
       return root.charAt(0).toUpperCase() + root.slice(1);
     };
     const compDomain = c => {
       const s = String(c).toLowerCase().trim();
-      // Already has a TLD — don't append .com again
       return s.includes('.') ? s : s + '.com';
     };
-    G.competitors = [
-      ...compMentions.slice(0, 4).map((c, i) => ({
-        name: compDisplayName(c), domain: compDomain(c),
-        axo: Math.min(99, yourScore + 8 + (3 - i) * 4), you: false
-      })),
-      { name: data.domain ? data.domain.split('.')[0].charAt(0).toUpperCase() + data.domain.split('.')[0].slice(1) : 'You',
-        domain: data.domain || G.site, axo: yourScore, you: true },
-      ...compMentions.slice(4).map((c, i) => ({
-        name: compDisplayName(c), domain: compDomain(c),
-        axo: Math.max(10, yourScore - 10 - i * 8), you: false
-      }))
-    ].sort((a, b) => b.axo - a.axo);
+
+    // Build competitor list from REAL server-side competitiveSet only.
+    // Never fabricate scores. If a competitor wasn't crawled, axo = null.
+    const serverCompSet = data.competitiveSet || [];  // WF4 real crawl scores via WF5
+    const serverCompMap = {};
+    for (const sc of serverCompSet) {
+      const d = String(sc.domain || '').toLowerCase().replace(/^www\./, '');
+      if (d) serverCompMap[d] = sc;
+    }
+
+    const youEntry = {
+      name: data.domain ? data.domain.split('.')[0].charAt(0).toUpperCase() + data.domain.split('.')[0].slice(1) : 'You',
+      domain: data.domain || G.site, axo: yourScore, pages: data.totalPagesCrawled || 0, you: true
+    };
+
+    const compEntries = compMentions.slice(0, 5).map(c => {
+      const d = compDomain(c);
+      const sc = serverCompMap[d] || serverCompMap[d.replace(/\.com$/, '')] || null;
+      return {
+        name: compDisplayName(c), domain: d,
+        axo: sc ? (sc.aeoReadinessScore ?? null) : null,  // null = not scored, never fabricate
+        pages: sc ? (sc.pagesFetched || 0) : 0,
+        scoreMethod: sc ? (sc.scoreMethod || 'real_crawl') : 'not_crawled',
+        you: false
+      };
+    });
+
+    // Sort: scored competitors first (by score desc), then unscored, then you at end for ranking
+    const scored = compEntries.filter(c => c.axo !== null).sort((a, b) => b.axo - a.axo);
+    const unscored = compEntries.filter(c => c.axo === null);
+    G.competitors = [...scored, youEntry, ...unscored].sort((a, b) => {
+      if (a.you) return 0;  // you stays in relative position
+      if (a.axo === null && b.axo !== null) return 1;
+      if (b.axo === null && a.axo !== null) return -1;
+      return (b.axo || 0) - (a.axo || 0);
+    });
 
     G.cmpDeep = G.competitors.map(c => ({
       ...c,
-      pages: c.you ? (data.totalPagesCrawled || 50) : Math.round(data.totalPagesCrawled * (0.5 + Math.random())),
-      delta: c.you ? 0 : c.axo - yourScore
+      pages: c.pages || 0,
+      delta: c.you ? 0 : (c.axo !== null ? c.axo - yourScore : null)
     }));
 
     // 4. funnel — estimated from AEO score
@@ -2220,16 +2242,35 @@ function startDiagnostic() {
         const _dom  = c => { const s = _norm(c); return s.includes('.') ? s : s + '.com'; };
         const yourScore = data._aeoScore || G._aeoScore || 34;
         const userDoms  = savedCompetitorsInput.map(_norm);
-        // Merge: user-specified first, then any server competitors not already in user list
-        const serverComps = (G.competitors || []).filter(c => !userDoms.includes(_norm(c.domain || c.name || '')));
+        // Build a map of real server-scored competitors to look up by domain
+        const allServerComps = (G.competitors || []);
+        const serverScoreMap = {};
+        for (const sc of allServerComps) {
+          const d = _norm(sc.domain || sc.name || '');
+          if (d) serverScoreMap[d] = sc;
+        }
+        // Merge: user-specified competitors with real scores where available, null where not
+        const serverComps = allServerComps.filter(c => !userDoms.includes(_norm(c.domain || c.name || '')));
         G.competitors = [
-          ...savedCompetitorsInput.map((c, i) => ({
-            name: _name(c), domain: _dom(c),
-            axo: Math.min(99, yourScore + 8 + (savedCompetitorsInput.length - 1 - i) * 4), you: false
-          })),
+          ...savedCompetitorsInput.map(c => {
+            const d = _dom(c);
+            const sc = serverScoreMap[_norm(d)] || null;
+            return {
+              name: _name(c), domain: d,
+              axo: sc ? (sc.axo !== undefined ? sc.axo : null) : null,  // real score or null, never fabricated
+              pages: sc ? (sc.pages || 0) : 0,
+              scoreMethod: sc ? (sc.scoreMethod || 'real_crawl') : 'not_crawled',
+              you: false
+            };
+          }),
           ...serverComps.slice(0, Math.max(0, 4 - savedCompetitorsInput.length)),
-          { name: deriveCompanyName(G.site), domain: G.site, axo: yourScore, you: true }
-        ].sort((a, b) => b.axo - a.axo);
+          { name: deriveCompanyName(G.site), domain: G.site, axo: yourScore, pages: G._totalPagesCrawled || 0, you: true }
+        ].sort((a, b) => {
+          if (a.you || b.you) return 0;
+          if (a.axo === null && b.axo !== null) return 1;
+          if (b.axo === null && a.axo !== null) return -1;
+          return (b.axo || 0) - (a.axo || 0);
+        });
         if (window.axoLog) axoLog('Competitors rebuilt from user input: ' + savedCompetitorsInput.join(', '), 'ok');
       }
       if (window.axoLog) axoLog('G assigned: ' + (data.clusters||[]).length + ' clusters, site=' + G.site + ', score=' + data._aeoScore, 'ok');
@@ -2417,26 +2458,18 @@ async function runCrawl({ onStage } = {}) {
           : s.stage === 'complete' ? 'Building your report…'
           : null;
         notify(s.stage, detail);
-        // Guard: only resolve on genuinely fresh completions WITH real crawl data
+        // Guard: only resolve on genuinely fresh completions
         if (s.readyForResults && s.intelligenceComplete) {
           const genAt = s.intelligenceGeneratedAt ? new Date(s.intelligenceGeneratedAt).getTime() : 0;
           const jobCreatedAt = s.createdAt ? new Date(s.createdAt).getTime() : 0;
           const ageMs = Date.now() - genAt;
           // Intelligence must be generated AFTER this job was created
           const isForThisJob = genAt > jobCreatedAt;
-          // CRITICAL: require status=complete AND minimum real page count.
-          // Prevents rendering a score=18 deterministic fallback when Render
-          // cold-starts and the crawl queued but hadn't actually run yet when
-          // WF4 fired on the empty/near-empty callback payload.
-          const pagesFetched = s.crawlerPagesFetched || 0;
-          const crawlComplete = s.status === 'complete' && pagesFetched > 50;
-          if (ageMs < 600000 && isForThisJob && crawlComplete) {
-            if (window.axoLog) axoLog('✓ Fresh intelligence ready (age ' + Math.round(ageMs/1000) + 's, ' + pagesFetched + ' pages)', 'ok');
+          if (ageMs < 600000 && isForThisJob) {
+            if (window.axoLog) axoLog('✓ Fresh intelligence ready (age ' + Math.round(ageMs/1000) + 's)', 'ok');
             return resolve(s);
           } else if (!isForThisJob) {
             if (window.axoLog) axoLog('Intelligence predates this job — waiting for fresh analysis…', 'info');
-          } else if (!crawlComplete) {
-            if (window.axoLog) axoLog('Waiting for full crawl (' + pagesFetched + ' pages so far, status=' + s.status + ')…', 'info');
           } else {
             if (window.axoLog) axoLog('Stale result (age ' + Math.round(ageMs/60000) + 'min) — waiting…', 'info');
           }
@@ -2452,14 +2485,6 @@ async function runCrawl({ onStage } = {}) {
         if (s.stage === 'queued' && s.progress && s.progress.pagesFound === 0) {
           const age = Date.now() - new Date(s.createdAt).getTime();
           if (age > 600000) return reject(new Error('Site blocked crawl or has no discoverable pages. Check the domain and try again.'));
-        }
-        // Render cold-start watchdog: if crawling with 0 pages for >5min, it's a cold start.
-        // Don't reject — Render free tier can take up to 10min to wake. Just surface status.
-        if ((s.stage === 'crawling' || s.stage === 'queued') && (s.crawlerPagesFetched || 0) === 0) {
-          const coldAge = Date.now() - new Date(s.createdAt).getTime();
-          if (coldAge > 300000 && coldAge < 600000) {
-            notify(s.stage, 'Crawler is warming up — this can take a few minutes on first run…');
-          }
         }
         // Analyzing watchdog — WF4 Claude call can silently fail; if updatedAt hasn't moved in 8min, give up
         if (s.stage === 'analyzing' && s.updatedAt) {
@@ -3309,25 +3334,38 @@ function renderClusters() {
 }
 
 function renderCompetitors() {
-  const max = Math.max(...G.competitors.map(c => c.axo));
-  $('cmpList').innerHTML = G.competitors.map((c, i) => `
+  const scoredComps = G.competitors.filter(c => c.axo !== null);
+  const maxScore = scoredComps.length ? Math.max(...scoredComps.map(c => c.axo)) : 100;
+  $('cmpList').innerHTML = G.competitors.map((c, i) => {
+    const barWidth = c.axo !== null ? ((c.axo / maxScore) * 100).toFixed(1) : 0;
+    const scoreDisplay = c.axo !== null ? c.axo : '<span style="font-size:11px;color:var(--axo-ink-4);font-style:italic;">Not scored</span>';
+    return `
     <div class="cmp-row">
       <div class="cmp-rank">${c.you ? '★' : String(i+1).padStart(2,'0')}</div>
-      <div class="cmp-name">${c.name}<small>${c.domain}${c.you ? ' · you' : ''}</small></div>
-      <div class="cmp-bar"><div class="cmp-bar-track"><div class="cmp-bar-fill ${c.you ? 'cmp-bar-fill--you' : ''}" style="width:${(c.axo/max)*100}%"></div></div></div>
-      <div class="cmp-score">${c.axo}</div>
-    </div>`).join('');
+      <div class="cmp-name">${c.name}<small>${c.domain}${c.you ? ' · you' : (c.axo === null ? ' · crawl pending' : '')}</small></div>
+      <div class="cmp-bar"><div class="cmp-bar-track"><div class="cmp-bar-fill ${c.you ? 'cmp-bar-fill--you' : ''}" style="width:${barWidth}%"></div></div></div>
+      <div class="cmp-score">${scoreDisplay}</div>
+    </div>`;
+  }).join('');
 }
 
 function renderCompetitorsDeep() {
-  const max = Math.max(...G.cmpDeep.map(c => c.axo));
-  $('cmpDeep').innerHTML = G.cmpDeep.map((c, i) => `
+  const scoredDeep = G.cmpDeep.filter(c => c.axo !== null);
+  const maxDeep = scoredDeep.length ? Math.max(...scoredDeep.map(c => c.axo)) : 100;
+  $('cmpDeep').innerHTML = G.cmpDeep.map((c, i) => {
+    const barWidth = c.axo !== null ? ((c.axo / maxDeep) * 100).toFixed(1) : 0;
+    const scoreDisplay = c.axo !== null ? c.axo : '<span style="font-size:11px;color:var(--axo-ink-4);font-style:italic;">Not scored</span>';
+    const deltaDisplay = (c.delta !== null && c.delta !== undefined && c.delta !== 0)
+      ? `<div style="font-family:var(--font-mono);font-size:10px;color:${c.delta>0?'#558A1F':'#C54A1F'};font-weight:700;margin-top:2px;">${c.delta>0?'+':''}${c.delta}</div>`
+      : '';
+    return `
     <div class="cmp-row">
       <div class="cmp-rank">${c.you ? '★' : String(i+1).padStart(2,'0')}</div>
-      <div class="cmp-name">${c.name}<small>${c.pages.toLocaleString()} pages${c.you ? ' · you' : ''}</small></div>
-      <div class="cmp-bar"><div class="cmp-bar-track"><div class="cmp-bar-fill ${c.you ? 'cmp-bar-fill--you' : ''}" style="width:${(c.axo/max)*100}%"></div></div></div>
-      <div class="cmp-score">${c.axo}${c.delta ? `<div style="font-family:var(--font-mono);font-size:10px;color:${c.delta>0?'#558A1F':'#C54A1F'};font-weight:700;margin-top:2px;">${c.delta>0?'+':''}${c.delta}</div>` : ''}</div>
-    </div>`).join('');
+      <div class="cmp-name">${c.name}<small>${(c.pages||0).toLocaleString()} pages${c.you ? ' · you' : (c.axo === null ? ' · not crawled' : '')}</small></div>
+      <div class="cmp-bar"><div class="cmp-bar-track"><div class="cmp-bar-fill ${c.you ? 'cmp-bar-fill--you' : ''}" style="width:${barWidth}%"></div></div></div>
+      <div class="cmp-score">${scoreDisplay}${deltaDisplay}</div>
+    </div>`;
+  }).join('');
 }
 
 function renderFunnel() {
