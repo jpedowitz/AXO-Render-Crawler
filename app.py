@@ -247,6 +247,8 @@ def priority_score(url: str) -> int:
     p = urlparse(url).path.lower()
     if re.search(r"roi|calculator|benchmark|assessment|maturity|readiness|framework", p):
         score += 8
+    if re.search(r"rm6|revenue-marketing-index|revenue-marketing-maturity|diagnostic|playbook|methodology", p):
+        score += 15  # Ensure proprietary tool/assessment pages always surface in sample
     if len([x for x in p.split("/") if x]) > 5:
         score -= 5
     return max(1, min(100, score))
@@ -276,6 +278,9 @@ def axo_url_score(url: str) -> Dict[str, Any]:
     if re.search(r"compare|alternative|vs-|versus|best|top|roi|cost|calculator|benchmark|assessment", p):
         score += 1.5
         signals.append("ai_query_intent")
+    if re.search(r"maturity|rm6|revenue-marketing-index|revenue-marketing-maturity|readiness|framework|playbook|methodology|diagnostic", p):
+        score += 2.0
+        signals.append("proprietary_tool")
     if len([x for x in p.split("/") if x]) > 5:
         score -= 0.5
         signals.append("deep_url_penalty")
@@ -726,9 +731,9 @@ def build_summary(start_url: str, metadata: List[Dict[str, Any]], failures: List
 
 def build_lean_callback_summary(metadata: List[Dict[str, Any]], failures: List[Dict[str, Any]], discovered_count: int, sitemaps_seen: int, full_complete: bool, start_url: str) -> Dict[str, Any]:
     """Compact summary for callback payload — stays under ~50KB."""
-    LEAN_LLM = 20
-    LEAN_TOP = 15
-    LEAN_GAP = 15
+    LEAN_LLM = 40   # Increased from 20 -- richer sample = better LLM recommendations
+    LEAN_TOP = 20
+    LEAN_GAP = 20
     EXCERPT_CHARS = 300
     scores = [float(p.get("aeoSignal", 0)) for p in metadata]
     type_counts = Counter([p.get("contentType", "other") for p in metadata])
