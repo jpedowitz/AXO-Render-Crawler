@@ -2417,18 +2417,26 @@ async function runCrawl({ onStage } = {}) {
           : s.stage === 'complete' ? 'Building your report…'
           : null;
         notify(s.stage, detail);
-        // Guard: only resolve on genuinely fresh completions
+        // Guard: only resolve on genuinely fresh completions WITH real crawl data
         if (s.readyForResults && s.intelligenceComplete) {
           const genAt = s.intelligenceGeneratedAt ? new Date(s.intelligenceGeneratedAt).getTime() : 0;
           const jobCreatedAt = s.createdAt ? new Date(s.createdAt).getTime() : 0;
           const ageMs = Date.now() - genAt;
           // Intelligence must be generated AFTER this job was created
           const isForThisJob = genAt > jobCreatedAt;
-          if (ageMs < 600000 && isForThisJob) {
-            if (window.axoLog) axoLog('✓ Fresh intelligence ready (age ' + Math.round(ageMs/1000) + 's)', 'ok');
+          // CRITICAL: require status=complete AND minimum real page count.
+          // Prevents rendering a score=18 deterministic fallback when Render
+          // cold-starts and the crawl queued but hadn't actually run yet when
+          // WF4 fired on the empty/near-empty callback payload.
+          const pagesFetched = s.crawlerPagesFetched || 0;
+          const crawlComplete = s.status === 'complete' && pagesFetched > 50;
+          if (ageMs < 600000 && isForThisJob && crawlComplete) {
+            if (window.axoLog) axoLog('✓ Fresh intelligence ready (age ' + Math.round(ageMs/1000) + 's, ' + pagesFetched + ' pages)', 'ok');
             return resolve(s);
           } else if (!isForThisJob) {
             if (window.axoLog) axoLog('Intelligence predates this job — waiting for fresh analysis…', 'info');
+          } else if (!crawlComplete) {
+            if (window.axoLog) axoLog('Waiting for full crawl (' + pagesFetched + ' pages so far, status=' + s.status + ')…', 'info');
           } else {
             if (window.axoLog) axoLog('Stale result (age ' + Math.round(ageMs/60000) + 'min) — waiting…', 'info');
           }
@@ -2444,6 +2452,14 @@ async function runCrawl({ onStage } = {}) {
         if (s.stage === 'queued' && s.progress && s.progress.pagesFound === 0) {
           const age = Date.now() - new Date(s.createdAt).getTime();
           if (age > 600000) return reject(new Error('Site blocked crawl or has no discoverable pages. Check the domain and try again.'));
+        }
+        // Render cold-start watchdog: if crawling with 0 pages for >5min, it's a cold start.
+        // Don't reject — Render free tier can take up to 10min to wake. Just surface status.
+        if ((s.stage === 'crawling' || s.stage === 'queued') && (s.crawlerPagesFetched || 0) === 0) {
+          const coldAge = Date.now() - new Date(s.createdAt).getTime();
+          if (coldAge > 300000 && coldAge < 600000) {
+            notify(s.stage, 'Crawler is warming up — this can take a few minutes on first run…');
+          }
         }
         // Analyzing watchdog — WF4 Claude call can silently fail; if updatedAt hasn't moved in 8min, give up
         if (s.stage === 'analyzing' && s.updatedAt) {
