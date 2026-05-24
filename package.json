@@ -7,7 +7,7 @@
     "dev:api": "tsx watch src/api/server.ts",
     "dev:worker": "tsx watch src/workers/index.ts",
     "build": "tsc",
-    "start:api": "node dist/api/server.js",
+    "start:api": "node dist/server.js",
     "start:worker": "node dist/workers/index.js",
     "db:migrate": "psql \"$DATABASE_URL\" -f db/schema.sql"
   },
