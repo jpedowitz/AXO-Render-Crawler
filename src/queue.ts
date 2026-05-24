@@ -1,6 +1,6 @@
 import { Redis } from 'ioredis';
 import { Queue, QueueEvents } from 'bullmq';
-import { config } from '../config.js';
+import { config } from './config.js';
 
 export const redis = new Redis(config.redisUrl, { maxRetriesPerRequest: null });
 
