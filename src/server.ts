@@ -1,8 +1,8 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import { z } from 'zod';
-import { config, requireConfig } from 'src/config.js';
-import { createJob, getJobResults, getJobStatus } from 'src/jobService.js';
+import { config, requireConfig } from './config.js';
+import { createJob, getJobResults, getJobStatus } from './jobService.js';
 
 requireConfig();
 
