@@ -6,8 +6,8 @@ services:
     buildCommand: npm ci && npm run build
     startCommand: npm run start:api
     envVars:
-      - key: NODE_ENV
-        value: production
+      - key: NODE_VERSION
+        value: 20
       - key: DATABASE_URL
         fromDatabase:
           name: axo-postgres
