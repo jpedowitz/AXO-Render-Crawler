@@ -38,7 +38,9 @@ services:
   - type: redis
     name: axo-redis
     plan: standard
+    ipAllowList: []
 
 databases:
   - name: axo-postgres
     plan: standard
+    ipAllowList: []
