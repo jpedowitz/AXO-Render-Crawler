@@ -7,7 +7,7 @@ import { reducePages, buildCompactPrompt } from '../reducer.js';
 import { runLLMPanel } from '../llm.js';
 import { blendScores, deterministicScore } from '../scorer.js';
 import { buildReport } from '../report.js';
-import { simulateCitationReadiness } from '..citation.js';
+import { simulateCitationReadiness } from '../citation.js';
 import { maybeStorePageEmbeddings } from '../embeddings.js';
 import { event, updateJob } from '../jobService.js';
 
