@@ -1,15 +1,15 @@
 import { Worker } from 'bullmq';
-import { config, requireConfig } from './src/config.js';
-import { redis } from './src/queue.js';
-import { one, query } from './src/db.js';
-import { crawlSite, type CrawledPage } from './src/crawler.js';
-import { reducePages, buildCompactPrompt } from './src/reducer.js';
-import { runLLMPanel } from '../services/llm.js';
-import { blendScores, deterministicScore } from './src/scorer.js';
-import { buildReport } from '../services/report.js';
-import { simulateCitationReadiness } from './src/citation.js';
-import { maybeStorePageEmbeddings } from './src/embeddings.js';
-import { event, updateJob } from './src/jobService.js';
+import { config, requireConfig } from '../config.js';
+import { redis } from '../queue.js';
+import { one, query } from '../db.js';
+import { crawlSite, type CrawledPage } from '../crawler.js';
+import { reducePages, buildCompactPrompt } from '../reducer.js';
+import { runLLMPanel } from '../llm.js';
+import { blendScores, deterministicScore } from '../scorer.js';
+import { buildReport } from '../report.js';
+import { simulateCitationReadiness } from '..citation.js';
+import { maybeStorePageEmbeddings } from '../embeddings.js';
+import { event, updateJob } from '../jobService.js';
 
 requireConfig();
 
