@@ -1,32 +1,44 @@
 services:
   - type: web
-    name: axo-render-crawler
-    env: python
+    name: axo-api
+    env: node
     plan: standard
-    buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start:api
     envVars:
-      - key: PYTHON_VERSION
-        value: "3.11.9"
-      - key: CRAWL_CONCURRENCY
-        value: "500"
-      - key: PER_HOST_CONCURRENCY
-        value: "50"
-      - key: SITEMAP_CONCURRENCY
-        value: "100"
-      - key: REQUEST_TIMEOUT_SECONDS
-        value: "5"
-      - key: DEFAULT_LIMIT
-        value: "15000"
-      - key: MAX_LIMIT
-        value: "150000"
-      - key: MAX_BYTES_PER_PAGE
-        value: "400000"
-      - key: MAX_TEXT_CHARS_PER_PAGE
-        value: "25000"
-      - key: ANALYSIS_READY_MIN_PAGES
-        value: "750"
-      - key: ANALYSIS_READY_MAX_SECONDS
-        value: "300"
-      - key: HTTP2_ENABLED
-        value: "1"
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: axo-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: axo-redis
+          property: connectionString
+  - type: worker
+    name: axo-worker
+    env: node
+    plan: standard
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start:worker
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: axo-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: axo-redis
+          property: connectionString
+  - type: redis
+    name: axo-redis
+    plan: standard
+
+databases:
+  - name: axo-postgres
+    plan: standard
