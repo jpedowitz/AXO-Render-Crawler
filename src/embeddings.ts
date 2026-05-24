@@ -1,6 +1,6 @@
 import OpenAI from 'openai';
 import { config } from './config.js';
-import { query } from './lib/db.js';
+import { query } from './db.js';
 import type { CrawledPage } from './crawler.js';
 
 export async function maybeStorePageEmbeddings(jobId: string, pages: CrawledPage[]) {
