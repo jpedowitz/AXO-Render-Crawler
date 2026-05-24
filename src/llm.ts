@@ -1,6 +1,6 @@
 import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
-import { config } from '../config.js';
+import { config } from './config.js';
 
 export type EngineResult = {
   engine: string;
