@@ -25,7 +25,7 @@ app.get('/health', async () => ({ ok: true, service: 'axo-api' }));
 app.post('/axo/jobs', async (req, reply) => {
   const parsed = createJobSchema.safeParse(req.body);
   if (!parsed.success) return reply.code(400).send({ success: false, error: parsed.error.flatten() });
-  const status = await createJob(parsed.data);
+  const status = await createJob(parsed.data as any);
   return reply.code(202).send(status);
 });
 
