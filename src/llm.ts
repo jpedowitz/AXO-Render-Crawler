@@ -71,7 +71,10 @@ async function callGemini(prompt: string) {
   });
   const json = await resp.json();
   const raw = json.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
-  return parseJson(raw);
+  console.log('[GEMINI TEXT]', raw.slice(0, 300));
+  const parsed = parseJson(raw);
+  console.log('[GEMINI PARSED]', JSON.stringify(parsed).slice(0, 200));
+  return parsed;
 }
 
 function parseJson(text: string) {
