@@ -245,7 +245,11 @@ async function runDiagnostic(jobId: string) {
 
   if (competitorDomains.length === 0) {
     await updateJob(jobId, { stage: 'competitor_discovery' });
-    const intelligence = llmPanel.intelligence || {};
+    // Intelligence lives in each EngineResult's .data field — use Claude's result first,
+    // fall back to any successful engine's data
+    const claudeResult = llmPanel.find(r => r.engine === 'claude' && r.ok && r.data);
+    const anyResult = llmPanel.find(r => r.ok && r.data);
+    const intelligence = claudeResult?.data || anyResult?.data || {};
     const personas: string[] = Array.isArray(intelligence.buyerPersonas) ? intelligence.buyerPersonas : [];
     const siteSummary = [
       intelligence.companySummary || '',
