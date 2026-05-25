@@ -1,225 +1,334 @@
+import fetch from 'node-fetch';
 import * as cheerio from 'cheerio';
-import { classifyFetchedPage, classifyUrlPriority, normalizedContentHash, type PageClassification } from './pageClassifier.js';
+import { createHash } from 'crypto';
+import { URL } from 'url';
 
-export type CrawlOptions = {
+export interface CrawledPage {
+  url: string;
+  title: string;
+  statusCode: number;
+  contentType: string;
+  wordCount: number;
+  aeoSignal: number;
+  signals: string[];
+  excerpt: string;
+  contentHash: string;
+  changed?: boolean;
+  classification?: {
+    priority?: number;
+    action?: string;
+    type?: string;
+  };
+  type?: string;
+}
+
+interface CrawlOptions {
   startUrl: string;
   domain: string;
   maxPages: number;
   depth: number;
   includeSubdomains: boolean;
   timeoutMs: number;
-  concurrency?: number;
-  perHostConcurrency?: number;
-};
-
-export type CrawledPage = {
-  url: string;
-  statusCode: number;
-  title: string;
-  text: string;
-  wordCount: number;
-  contentType: string;
-  signals: string[];
-  aeoSignal: number;
-  excerpt: string;
-  contentHash: string;
-  classification: PageClassification;
-  changed?: boolean;
-};
-
-type QueueItem = { url: string; depth: number };
-
-type HostLease = { release: () => void };
-
-export async function crawlSite(opts: CrawlOptions): Promise<CrawledPage[]> {
-  const concurrency = Math.max(1, Number(opts.concurrency || 20));
-  const perHostConcurrency = Math.max(1, Number(opts.perHostConcurrency || 5));
-
-  const seen = new Set<string>();
-  const queued = new Set<string>();
-  const queue: QueueItem[] = [];
-  const pages: CrawledPage[] = [];
-  const activeByHost = new Map<string, number>();
-
-  const start = normalizeUrl(opts.startUrl);
-  if (start) {
-    queue.push({ url: start, depth: 0 });
-    queued.add(start);
-  }
-
-  async function acquireHost(url: string): Promise<HostLease> {
-    const host = hostKey(url);
-    while ((activeByHost.get(host) || 0) >= perHostConcurrency) {
-      await sleep(20);
-    }
-    activeByHost.set(host, (activeByHost.get(host) || 0) + 1);
-    return {
-      release: () => {
-        const next = Math.max(0, (activeByHost.get(host) || 1) - 1);
-        if (next === 0) activeByHost.delete(host);
-        else activeByHost.set(host, next);
-      }
-    };
-  }
-
-  async function processItem(item: QueueItem): Promise<void> {
-    if (pages.length >= opts.maxPages) return;
-
-    const normalized = normalizeUrl(item.url);
-    if (!normalized || seen.has(normalized)) return;
-    seen.add(normalized);
-    if (!isAllowed(normalized, opts.domain, opts.includeSubdomains)) return;
-
-    let lease: HostLease | null = null;
-    try {
-      lease = await acquireHost(normalized);
-      const page = await fetchPage(normalized, opts.timeoutMs);
-      if (pages.length < opts.maxPages) pages.push(page);
-
-      if (item.depth < opts.depth && pages.length < opts.maxPages) {
-        for (const link of extractLinks(page.text, normalized)) {
-          if (queue.length + seen.size >= opts.maxPages * 8) break;
-          if (!seen.has(link) && !queued.has(link) && isAllowed(link, opts.domain, opts.includeSubdomains)) {
-            queued.add(link);
-            queue.push({ url: link, depth: item.depth + 1 });
-          }
-        }
-      }
-    } catch {
-      // Ignore individual page failures; the reducer handles partial crawls.
-    } finally {
-      if (lease) lease.release();
-    }
-  }
-
-  while (queue.length && pages.length < opts.maxPages) {
-    queue.sort((a, b) => classifyUrlPriority(b.url, b.depth).priority - classifyUrlPriority(a.url, a.depth).priority);
-    const batch = queue.splice(0, concurrency);
-    await Promise.allSettled(batch.map(processItem));
-  }
-
-  return pages.slice(0, opts.maxPages);
+  concurrency: number;
+  perHostConcurrency: number;
+  // New parallel options
+  batchSize?: number;       // pages per parallel worker (default 25)
+  maxBatches?: number;      // max concurrent batches (default 50)
+  sitemapFirst?: boolean;   // discover all URLs via sitemap before crawling
 }
 
-async function fetchPage(url: string, timeoutMs: number): Promise<CrawledPage> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  const res = await fetch(url, {
-    signal: controller.signal,
-    redirect: 'follow',
-    headers: { 'user-agent': 'TPG-AXO-Diagnostic/2.0 (+https://www.pedowitzgroup.com)' }
-  });
-  clearTimeout(timer);
-
-  const contentTypeHeader = res.headers.get('content-type') || '';
-  if (!contentTypeHeader.includes('text/html') && !contentTypeHeader.includes('application/xhtml')) {
-    const emptyPage = {
-      url,
-      statusCode: res.status,
-      title: url,
-      text: '',
-      wordCount: 0,
-      contentType: 'non_html',
-      signals: [],
-      aeoSignal: 0,
-      excerpt: '',
-      contentHash: normalizedContentHash(url),
-      classification: undefined as unknown as PageClassification
-    };
-    emptyPage.classification = classifyFetchedPage(emptyPage);
-    return emptyPage;
-  }
-
-  const html = await res.text();
-  const $ = cheerio.load(html);
-  $('script, style, noscript, svg').remove();
-  const title = $('title').text().trim() || $('h1').first().text().trim() || url;
-  const bodyText = $('body').text().replace(/\s+/g, ' ').trim();
-  const wordCount = bodyText ? bodyText.split(/\s+/).length : 0;
-  const signals = detectSignals($, bodyText, html);
-  const contentType = classifyContent(url, title, bodyText);
-  const aeoSignal = scoreAeo(signals, wordCount, contentType);
-  const excerpt = bodyText.slice(0, 600);
-  const pageBase = { url, statusCode: res.status, title, text: html, wordCount, contentType, signals, aeoSignal, excerpt };
-  const contentHash = normalizedContentHash(title + ' ' + bodyText.slice(0, 12000));
-  const classification = classifyFetchedPage(pageBase);
-  return { ...pageBase, contentHash, classification };
+// ── Priority scorer ──────────────────────────────────────────────────
+function priorityScore(url: string): number {
+  const u = url.toLowerCase().replace(/^https?:\/\/[^/]+/, '');
+  if (/\/(solutions?|services?|products?|platform|features?|capabilities)/.test(u)) return 100;
+  if (/\/(vs|compare|alternatives?|pricing|roi|calculator)/.test(u)) return 95;
+  if (/\/(case-stud|customer|success|results?|testimonial|proof)/.test(u)) return 90;
+  if (/\/(contact|demo|trial|get-started|request)/.test(u)) return 88;
+  if (/\/(about|team|leadership|company|mission|why)/.test(u)) return 70;
+  if (/\/(blog|resources?|insights?|guides?|whitepapers?)(\/?$|\?|#)/.test(u)) return 75;
+  if (/\/(blog|resources?|insights?)\/[^/]+/.test(u)) return 50;
+  if (/\/(legal|privacy|terms|careers?|jobs?|press|events?\/\d{4})/.test(u)) return 5;
+  if (/\/(tag|category|author)\//.test(u)) return 3;
+  if (/\/page\/\d+/.test(u)) return 2;
+  return 40;
 }
 
-function detectSignals($: cheerio.CheerioAPI, text: string, html: string): string[] {
-  const signals = new Set<string>();
-  if ($('script[type="application/ld+json"]').length) signals.add('structured_data');
-  if (/FAQPage|Question|Answer/i.test(html)) signals.add('faq_schema');
-  if (/\b(vs\.?|compare|comparison|alternative|competitor)\b/i.test(text)) signals.add('comparison_language');
-  if (/\b(pricing|cost|plans|roi|calculator)\b/i.test(text)) signals.add('decision_language');
-  if (/\b(case study|customer story|results|outcomes)\b/i.test(text)) signals.add('proof_language');
-  if (/\b(ai|automation|agent|generative|LLM|machine learning)\b/i.test(text)) signals.add('ai_language');
-  if ($('h1').length && $('h2').length) signals.add('heading_structure');
-  return [...signals];
-}
-
-function classifyContent(url: string, title: string, text: string): string {
-  const s = `${url} ${title} ${text.slice(0, 300)}`.toLowerCase();
-  if (/case-study|customer-story|case study/.test(s)) return 'case_study';
-  if (/pricing|plans|cost/.test(s)) return 'pricing';
-  if (/blog|article|insight|guide/.test(s)) return 'article';
-  if (/faq|questions/.test(s)) return 'faq';
-  if (/comparison|compare|vs|alternative/.test(s)) return 'comparison';
-  if (/demo|contact|consultation/.test(s)) return 'conversion';
+function classifyUrl(url: string): string {
+  const u = url.toLowerCase().replace(/^https?:\/\/[^/]+/, '');
+  if (/\/(contact|demo|trial|get-started|request|sign-?up|free)/.test(u)) return 'conversion';
+  if (/\/(blog|resources?|insights?|guides?|news|articles?)\/[^/]+/.test(u)) return 'article';
   return 'page';
 }
 
-function scoreAeo(signals: string[], wordCount: number, contentType: string): number {
-  let score = 0;
-  score += Math.min(4, signals.length * 0.75);
-  if (wordCount > 600) score += 2;
-  else if (wordCount > 250) score += 1;
-  if (['faq', 'comparison', 'case_study', 'pricing'].includes(contentType)) score += 2;
-  if (signals.includes('structured_data')) score += 1;
-  if (signals.includes('faq_schema')) score += 1;
-  return Math.max(0, Math.min(10, Number(score.toFixed(1))));
+// ── AEO signal scorer ────────────────────────────────────────────────
+function scoreAeo(html: string, url: string): { score: number; signals: string[]; excerpt: string; wordCount: number } {
+  const signals: string[] = [];
+  const lower = html.toLowerCase();
+
+  if (lower.includes('"@type": "faqpage"') || lower.includes('"@type":"faqpage"') || lower.includes('faqpage')) signals.push('faq_schema');
+  if (/\b(best|top|leading|trusted|proven|certified|award)\b/.test(lower)) signals.push('proof_language');
+  if (/\b(vs\.|versus|compare|better than|alternative|difference between)\b/.test(lower)) signals.push('comparison_language');
+  if (/\b(how to|step.by.step|guide|tutorial|learn|understand|what is)\b/.test(lower)) signals.push('ai_language');
+  if (/\b(contact|get started|demo|free trial|buy now|sign up|request)\b/.test(lower)) signals.push('decision_language');
+  if (/<h[1-6]/i.test(html)) signals.push('heading_structure');
+
+  // Word count from stripped text
+  const text = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  const wordCount = text.split(' ').length;
+
+  // Excerpt — first 200 chars of meaningful text
+  const excerpt = text.substring(0, 200);
+
+  // AEO signal score: 0-10
+  const score = Math.min(10, (signals.length * 1.5) + (wordCount > 500 ? 1 : 0) + (wordCount > 1500 ? 0.5 : 0));
+
+  return { score, signals, excerpt, wordCount };
 }
 
-function normalizeUrl(url: string): string | null {
-  try {
-    const u = new URL(url);
-    if (!['http:', 'https:'].includes(u.protocol)) return null;
-    u.hash = '';
-    // Remove common tracking params so the crawler does not waste budget.
-    for (const key of [...u.searchParams.keys()]) {
-      if (/^utm_|^fbclid$|^gclid$|^msclkid$/i.test(key)) u.searchParams.delete(key);
-    }
-    if (u.pathname.endsWith('/')) u.pathname = u.pathname.slice(0, -1) || '/';
-    return u.toString();
-  } catch { return null; }
-}
+// ── Discover all URLs from sitemap ───────────────────────────────────
+async function discoverSitemap(domain: string, timeoutMs: number): Promise<string[]> {
+  const sitemapUrls = [
+    `https://${domain}/sitemap.xml`,
+    `https://${domain}/sitemap_index.xml`,
+    `https://${domain}/sitemap-index.xml`,
+    `https://www.${domain}/sitemap.xml`,
+  ];
 
-function isAllowed(url: string, domain: string, includeSubdomains: boolean): boolean {
-  try {
-    const host = new URL(url).hostname.toLowerCase().replace(/^www\./, '');
-    return includeSubdomains ? host.endsWith(domain) : host === domain;
-  } catch { return false; }
-}
+  const found = new Set<string>();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), Math.min(timeoutMs, 15000));
 
-function extractLinks(html: string, baseUrl: string): string[] {
-  const $ = cheerio.load(html);
-  const links: string[] = [];
-  $('a[href]').each((_, a) => {
-    const href = $(a).attr('href');
-    if (!href || href.startsWith('mailto:') || href.startsWith('tel:') || href.startsWith('#')) return;
+  for (const sitemapUrl of sitemapUrls) {
     try {
-      const parsed = new URL(href, baseUrl);
-      if (!['http:', 'https:'].includes(parsed.protocol)) return;
-      links.push(parsed.toString());
+      const res = await fetch(sitemapUrl, { signal: controller.signal as any, headers: { 'User-Agent': 'AXO-Diagnostic/2.0' } });
+      if (!res.ok) continue;
+      const xml = await res.text();
+
+      // Parse sitemap index — recurse into child sitemaps
+      const childSitemaps = [...xml.matchAll(/<loc>\s*(https?:\/\/[^<]+\.xml[^<]*)\s*<\/loc>/gi)].map(m => m[1].trim());
+      for (const child of childSitemaps.slice(0, 20)) {
+        try {
+          const childRes = await fetch(child, { signal: controller.signal as any, headers: { 'User-Agent': 'AXO-Diagnostic/2.0' } });
+          if (!childRes.ok) continue;
+          const childXml = await childRes.text();
+          const childUrls = [...childXml.matchAll(/<loc>\s*(https?:\/\/[^<\s]+)\s*<\/loc>/gi)].map(m => m[1].trim());
+          childUrls.forEach(u => found.add(u));
+        } catch {}
+      }
+
+      // Parse direct URLs
+      const directUrls = [...xml.matchAll(/<loc>\s*(https?:\/\/[^<\s]+)\s*<\/loc>/gi)]
+        .map(m => m[1].trim())
+        .filter(u => !u.endsWith('.xml'));
+      directUrls.forEach(u => found.add(u));
+
+      if (found.size > 0) break; // got URLs from first working sitemap
     } catch {}
-  });
-  return [...new Set(links)].slice(0, 2000);
+  }
+
+  clearTimeout(timer);
+  return [...found];
 }
 
-function hostKey(url: string): string {
-  try { return new URL(url).hostname.toLowerCase(); } catch { return 'unknown'; }
+// ── Fetch a single page ──────────────────────────────────────────────
+async function fetchPage(url: string, timeoutMs = 8000): Promise<CrawledPage | null> {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const res = await fetch(url, {
+      signal: controller.signal as any,
+      headers: {
+        'User-Agent': 'AXO-Diagnostic/2.0 (compatible; site analysis)',
+        'Accept': 'text/html,application/xhtml+xml',
+      },
+      redirect: 'follow',
+    });
+    clearTimeout(timer);
+
+    const contentType = res.headers.get('content-type') || '';
+    if (!contentType.includes('html')) return null;
+
+    const html = await res.text();
+    const $ = cheerio.load(html);
+
+    const title = $('title').first().text().trim() || $('h1').first().text().trim() || url;
+    const { score, signals, excerpt, wordCount } = scoreAeo(html, url);
+    const contentHash = createHash('md5').update(html.substring(0, 50000)).digest('hex');
+    const priority = priorityScore(url);
+    const type = classifyUrl(url);
+
+    return {
+      url,
+      title: title.substring(0, 200),
+      statusCode: res.status,
+      contentType: contentType.split(';')[0].trim(),
+      wordCount,
+      aeoSignal: score,
+      signals,
+      excerpt,
+      contentHash,
+      changed: true,
+      type,
+      classification: { priority, action: score >= 7 ? 'optimize' : 'build', type },
+    };
+  } catch {
+    return null;
+  }
 }
 
-function sleep(ms: number) {
-  return new Promise(resolve => setTimeout(resolve, ms));
+// ── Crawl one page and extract links (for fallback BFS) ──────────────
+async function fetchPageWithLinks(url: string, domain: string, timeoutMs = 8000): Promise<{ page: CrawledPage | null; links: string[] }> {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const res = await fetch(url, {
+      signal: controller.signal as any,
+      headers: { 'User-Agent': 'AXO-Diagnostic/2.0', 'Accept': 'text/html' },
+      redirect: 'follow',
+    });
+    clearTimeout(timer);
+
+    const contentType = res.headers.get('content-type') || '';
+    if (!contentType.includes('html')) return { page: null, links: [] };
+
+    const html = await res.text();
+    const $ = cheerio.load(html);
+
+    const title = $('title').first().text().trim() || url;
+    const { score, signals, excerpt, wordCount } = scoreAeo(html, url);
+    const contentHash = createHash('md5').update(html.substring(0, 50000)).digest('hex');
+    const type = classifyUrl(url);
+
+    const page: CrawledPage = {
+      url,
+      title: title.substring(0, 200),
+      statusCode: res.status,
+      contentType: contentType.split(';')[0].trim(),
+      wordCount,
+      aeoSignal: score,
+      signals,
+      excerpt,
+      contentHash,
+      changed: true,
+      type,
+      classification: { priority: priorityScore(url), action: score >= 7 ? 'optimize' : 'build', type },
+    };
+
+    // Extract same-domain links
+    const base = new URL(url);
+    const links: string[] = [];
+    $('a[href]').each((_, el) => {
+      try {
+        const href = $(el).attr('href') || '';
+        const resolved = new URL(href, base);
+        if (resolved.hostname === base.hostname || resolved.hostname === `www.${domain}` || resolved.hostname === domain) {
+          resolved.hash = '';
+          resolved.search = resolved.search.replace(/[?&]utm[^&]*/gi, '').replace(/^[?&]/, '');
+          const clean = resolved.toString();
+          if (!clean.match(/\.(pdf|jpg|jpeg|png|gif|svg|css|js|ico|xml|json|zip|mp4|mp3|woff|woff2|ttf)(\?|$)/i)) {
+            links.push(clean);
+          }
+        }
+      } catch {}
+    });
+
+    return { page, links };
+  } catch {
+    return { page: null, links: [] };
+  }
+}
+
+// ── MAIN: Parallel crawl ─────────────────────────────────────────────
+export async function crawlSite(options: CrawlOptions): Promise<CrawledPage[]> {
+  const {
+    startUrl,
+    domain,
+    maxPages,
+    timeoutMs,
+    batchSize = 25,
+    maxBatches = 50,
+  } = options;
+
+  const deadline = Date.now() + timeoutMs;
+
+  // Step 1: Discover all URLs via sitemap (fast, 5-15s)
+  console.log(`[crawler] Discovering sitemap for ${domain}…`);
+  let allUrls = await discoverSitemap(domain, Math.min(timeoutMs * 0.2, 15000));
+  console.log(`[crawler] Sitemap yielded ${allUrls.length} URLs`);
+
+  // Step 2: If sitemap empty/failed, do a BFS seed crawl to discover URLs
+  if (allUrls.length < 10) {
+    console.log(`[crawler] Sitemap thin — BFS discovery from ${startUrl}…`);
+    const seedResult = await fetchPageWithLinks(startUrl, domain, 10000);
+    const queue = [startUrl, ...(seedResult.links || [])];
+    const bfsVisited = new Set<string>([startUrl]);
+    const bfsFound: string[] = [startUrl];
+
+    // BFS up to 3 levels to discover URLs when no sitemap
+    for (let i = 0; i < Math.min(queue.length, 200) && Date.now() < deadline; i++) {
+      const url = queue[i];
+      if (!bfsVisited.has(url)) {
+        bfsVisited.add(url);
+        try {
+          const r = await fetchPageWithLinks(url, domain, 5000);
+          if (r.page) bfsFound.push(url);
+          r.links.filter(l => !bfsVisited.has(l)).forEach(l => { queue.push(l); });
+        } catch {}
+      }
+    }
+    allUrls = bfsFound;
+    console.log(`[crawler] BFS found ${allUrls.length} URLs`);
+  }
+
+  // Step 3: Filter to same domain, dedupe, priority sort
+  const normalize = (u: string) => {
+    try {
+      const parsed = new URL(u);
+      parsed.hash = '';
+      return parsed.toString();
+    } catch { return u; }
+  };
+
+  const domainFilter = (u: string) => {
+    try {
+      const h = new URL(u).hostname.replace(/^www\./, '');
+      const d = domain.replace(/^www\./, '');
+      return h === d || h.endsWith('.' + d);
+    } catch { return false; }
+  };
+
+  const deduped = [...new Set(allUrls.map(normalize))].filter(domainFilter);
+
+  // Sort by priority — highest value pages first
+  deduped.sort((a, b) => priorityScore(b) - priorityScore(a));
+
+  // Cap at maxPages
+  const urlsToFetch = deduped.slice(0, maxPages);
+  console.log(`[crawler] Fetching ${urlsToFetch.length} URLs (priority sorted, capped at ${maxPages})…`);
+
+  // Step 4: Parallel batch fetch — batchSize pages per batch, maxBatches concurrent
+  const results: CrawledPage[] = [];
+  const chunks: string[][] = [];
+  for (let i = 0; i < urlsToFetch.length; i += batchSize) {
+    chunks.push(urlsToFetch.slice(i, i + batchSize));
+  }
+
+  // Process chunks in waves of maxBatches concurrent batches
+  for (let wave = 0; wave < chunks.length; wave += maxBatches) {
+    if (Date.now() > deadline) {
+      console.log(`[crawler] Deadline reached after ${results.length} pages`);
+      break;
+    }
+    const waveBatches = chunks.slice(wave, wave + maxBatches);
+    const waveResults = await Promise.all(
+      waveBatches.map(batch =>
+        Promise.all(batch.map(url => fetchPage(url, 8000)))
+      )
+    );
+    waveResults.flat().forEach(page => { if (page) results.push(page); });
+    console.log(`[crawler] Wave ${Math.floor(wave / maxBatches) + 1}: ${results.length} pages fetched so far`);
+  }
+
+  console.log(`[crawler] Complete: ${results.length} pages in ${Math.round((Date.now() - (deadline - timeoutMs)) / 1000)}s`);
+  return results;
 }
