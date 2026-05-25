@@ -2648,6 +2648,22 @@ function renderNarrative() {
     if (strongName && weakName && strongName !== weakName) {
       ch3Title.textContent = strongName + ' sees you clearly. ' + weakName + ' does not.';
     }
+    function setTitle(id, text) {
+    var el = document.getElementById(id);
+    if (el && text) el.textContent = text;
+  }
+  function setHtml(id, html) {
+    var el = document.getElementById(id);
+    if (el && html) el.innerHTML = html;
+  }
+  if (n.ch1Title) setTitle('ch1Title', n.ch1Title);
+  if (n.ch1LedeStatic) setHtml('ch1LedeStatic', n.ch1LedeStatic);
+  if (n.ch4Title) setTitle('ch4Title', n.ch4Title);
+  if (n.ch6Title) setTitle('ch6Title', n.ch6Title);
+  if (n.ch7Title) setTitle('ch7Title', n.ch7Title);
+  if (n.ch8Title) setTitle('ch8Title', n.ch8Title);
+  if (n.ch9Title) setTitle('ch9Title', n.ch9Title);
+  if (n.ch10Title) setTitle('ch10Title', n.ch10Title);
   }
 
   // Update exec stat labels with real persona/stage names
