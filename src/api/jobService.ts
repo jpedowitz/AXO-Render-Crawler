@@ -1,7 +1,7 @@
 import { nanoid } from 'nanoid';
-import { one, query } from './db.js';
-import { diagnosticQueue } from './queue.js';
-import { config } from './config.js';
+import { one, query } from '../db.js';
+import { diagnosticQueue } from '../queue.js';
+import { config } from '../config.js';
 
 export type CreateJobInput = {
   url: string;
