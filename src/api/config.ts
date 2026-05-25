@@ -1,6 +1,7 @@
 import 'dotenv/config';
 
 export const config = {
+  
   nodeEnv: process.env.NODE_ENV || 'development',
   port: Number(process.env.PORT || 3000),
   databaseUrl: process.env.DATABASE_URL || '',
@@ -24,7 +25,7 @@ export const config = {
   embeddingMaxPages: Number(process.env.EMBEDDING_MAX_PAGES || 50),
   changedPageBoost: String(process.env.CHANGED_PAGE_BOOST || 'true').toLowerCase() !== 'false'
 };
-
+export { config, requireConfig } from '../config.js';
 export function requireConfig() {
   if (!config.databaseUrl) throw new Error('DATABASE_URL is required');
   if (!config.redisUrl) throw new Error('REDIS_URL is required');
