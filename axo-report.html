@@ -1,0 +1,789 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AXO Diagnostic Report — The Pedowitz Group</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:wght@300;400;500;600&display=swap');
+
+  :root {
+    --tpg-navy: #0d1b2a;
+    --tpg-teal: #007b8e;
+    --tpg-lime: #8dc63f;
+    --tpg-light: #f4f6f8;
+    --tpg-border: #e2e6ea;
+    --tpg-text: #1a2332;
+    --tpg-muted: #5a6878;
+    --score-strong: #8dc63f;
+    --score-developing: #f59e0b;
+    --score-critical: #e24b4a;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: #f0f2f5;
+    color: var(--tpg-text);
+    font-size: 15px;
+    line-height: 1.6;
+  }
+
+  /* Loading State */
+  #loading {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 24px;
+    background: var(--tpg-navy);
+    color: white;
+  }
+  .tpg-logo-mark {
+    width: 64px;
+    height: 64px;
+    background: var(--tpg-lime);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--tpg-navy);
+    animation: pulse 1.5s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100%{transform:scale(1);opacity:1} 50%{transform:scale(1.08);opacity:.8} }
+  .loading-text { font-size: 18px; opacity: .8; letter-spacing: .5px; }
+  .loading-sub { font-size: 13px; opacity: .5; }
+
+  /* Error State */
+  #error { display: none; min-height: 100vh; align-items: center; justify-content: center; }
+  .error-card { background: white; border-radius: 12px; padding: 48px; max-width: 480px; text-align: center; }
+  .error-code { font-size: 48px; font-weight: 300; color: var(--tpg-teal); margin-bottom: 16px; }
+
+  /* Report Container */
+  #report { display: none; max-width: 960px; margin: 0 auto; padding: 32px 16px 80px; }
+
+  /* Page Header */
+  .report-header {
+    background: var(--tpg-navy);
+    border-radius: 16px;
+    padding: 40px;
+    margin-bottom: 24px;
+    position: relative;
+    overflow: hidden;
+  }
+  .report-header::before {
+    content: '';
+    position: absolute;
+    top: -60px; right: -60px;
+    width: 240px; height: 240px;
+    border-radius: 50%;
+    background: rgba(141,198,63,.08);
+  }
+  .header-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 32px;
+  }
+  .tpg-brand { display: flex; align-items: center; gap: 10px; }
+  .brand-dot { width: 32px; height: 32px; background: var(--tpg-lime); border-radius: 50%; }
+  .brand-name { color: white; font-size: 14px; font-weight: 500; letter-spacing: .5px; opacity: .9; }
+  .report-badge {
+    background: rgba(255,255,255,.1);
+    color: rgba(255,255,255,.7);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    padding: 6px 14px;
+    border-radius: 100px;
+    border: 1px solid rgba(255,255,255,.15);
+  }
+  .header-content { display: flex; align-items: flex-end; justify-content: space-between; gap: 32px; }
+  .domain-info h1 {
+    font-family: 'DM Serif Display', serif;
+    font-size: 42px;
+    font-weight: 400;
+    color: white;
+    margin-bottom: 8px;
+    letter-spacing: -.5px;
+  }
+  .domain-meta { display: flex; gap: 20px; }
+  .domain-stat { color: rgba(255,255,255,.6); font-size: 13px; }
+  .domain-stat strong { color: white; font-weight: 500; }
+
+  /* Hero Score */
+  .hero-score {
+    text-align: center;
+    background: rgba(255,255,255,.06);
+    border: 1px solid rgba(255,255,255,.1);
+    border-radius: 12px;
+    padding: 28px 40px;
+    min-width: 200px;
+    flex-shrink: 0;
+  }
+  .score-number {
+    font-family: 'DM Serif Display', serif;
+    font-size: 72px;
+    font-weight: 400;
+    line-height: 1;
+    margin-bottom: 6px;
+  }
+  .score-label { font-size: 11px; letter-spacing: 2px; text-transform: uppercase; color: rgba(255,255,255,.5); }
+  .score-tier {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    padding: 4px 12px;
+    border-radius: 100px;
+    margin-top: 10px;
+  }
+  .tier-strong { background: rgba(141,198,63,.2); color: #a8e05f; }
+  .tier-developing { background: rgba(245,158,11,.2); color: #fbbf24; }
+  .tier-critical { background: rgba(226,75,74,.2); color: #f87171; }
+
+  /* Executive Summary Bar */
+  .exec-summary {
+    background: white;
+    border-radius: 12px;
+    padding: 24px 32px;
+    margin-bottom: 24px;
+    border-left: 4px solid var(--tpg-lime);
+  }
+  .exec-label { font-size: 11px; font-weight: 600; letter-spacing: 1.5px; text-transform: uppercase; color: var(--tpg-teal); margin-bottom: 8px; }
+  .exec-text { font-size: 15px; line-height: 1.7; color: var(--tpg-text); }
+
+  /* Section Cards */
+  .section-card {
+    background: white;
+    border-radius: 12px;
+    padding: 28px 32px;
+    margin-bottom: 20px;
+    border: 1px solid var(--tpg-border);
+  }
+  .section-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 20px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--tpg-border);
+  }
+  .section-num {
+    width: 28px; height: 28px;
+    background: var(--tpg-teal);
+    color: white;
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 600;
+    flex-shrink: 0;
+  }
+  .section-title { font-size: 17px; font-weight: 600; color: var(--tpg-navy); }
+  .section-sub { font-size: 13px; color: var(--tpg-muted); margin-left: auto; }
+
+  /* Engine Panel */
+  .engine-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  .engine-card {
+    border: 1px solid var(--tpg-border);
+    border-radius: 10px;
+    padding: 20px 16px;
+    text-align: center;
+  }
+  .engine-name { font-size: 11px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; color: var(--tpg-muted); margin-bottom: 12px; }
+  .engine-score { font-family: 'DM Serif Display', serif; font-size: 40px; font-weight: 400; line-height: 1; margin-bottom: 4px; }
+  .engine-bar-wrap { height: 4px; background: #eee; border-radius: 2px; margin-top: 12px; }
+  .engine-bar { height: 4px; border-radius: 2px; }
+  .engine-claude .engine-score { color: #e24b4a; }
+  .engine-claude .engine-bar { background: #e24b4a; }
+  .engine-openai .engine-score { color: #10a37f; }
+  .engine-openai .engine-bar { background: #10a37f; }
+  .engine-perplexity .engine-score { color: #5b5bd6; }
+  .engine-perplexity .engine-bar { background: #5b5bd6; }
+  .engine-gemini .engine-score { color: #1a73e8; }
+  .engine-gemini .engine-bar { background: #1a73e8; }
+
+  /* Dimension Dashboard */
+  .dim-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .dim-card {
+    background: var(--tpg-light);
+    border-radius: 10px;
+    padding: 16px;
+  }
+  .dim-label { font-size: 11px; font-weight: 500; letter-spacing: .5px; color: var(--tpg-muted); margin-bottom: 8px; }
+  .dim-value { font-family: 'DM Serif Display', serif; font-size: 32px; font-weight: 400; line-height: 1; margin-bottom: 4px; }
+  .dim-bar-wrap { height: 3px; background: #ddd; border-radius: 2px; margin-top: 8px; }
+  .dim-bar { height: 3px; border-radius: 2px; background: var(--tpg-teal); }
+
+  /* Stats row */
+  .stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 16px; }
+  .stat-chip {
+    background: var(--tpg-light);
+    border-radius: 10px;
+    padding: 14px 16px;
+    text-align: center;
+  }
+  .stat-chip-val { font-family: 'DM Serif Display', serif; font-size: 28px; font-weight: 400; color: var(--tpg-navy); }
+  .stat-chip-label { font-size: 11px; color: var(--tpg-muted); margin-top: 4px; }
+
+  /* Signal badges */
+  .signal-list { display: flex; flex-wrap: wrap; gap: 8px; }
+  .signal-badge {
+    background: #e8f5e9;
+    color: #2e7d32;
+    font-size: 12px;
+    font-weight: 500;
+    padding: 4px 12px;
+    border-radius: 100px;
+    border: 1px solid #c8e6c9;
+  }
+  .signal-badge.weak { background: #fff3e0; color: #e65100; border-color: #ffcc80; }
+
+  /* Quick wins */
+  .win-list { list-style: none; }
+  .win-item {
+    display: flex;
+    gap: 12px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--tpg-border);
+    align-items: flex-start;
+  }
+  .win-item:last-child { border-bottom: none; }
+  .win-dot {
+    width: 22px; height: 22px;
+    background: var(--tpg-lime);
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+  .win-dot svg { width: 12px; height: 12px; }
+  .win-text { font-size: 14px; line-height: 1.5; color: var(--tpg-text); }
+
+  /* Gap pages table */
+  .gap-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .gap-table th { text-align: left; padding: 8px 12px; font-size: 11px; font-weight: 600; letter-spacing: .5px; text-transform: uppercase; color: var(--tpg-muted); border-bottom: 2px solid var(--tpg-border); }
+  .gap-table td { padding: 10px 12px; border-bottom: 1px solid var(--tpg-border); vertical-align: top; }
+  .gap-table tr:last-child td { border-bottom: none; }
+  .gap-table tr:hover td { background: var(--tpg-light); }
+  .page-url { color: var(--tpg-teal); font-size: 12px; max-width: 360px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .aeo-signal { font-weight: 600; }
+  .aeo-low { color: #e24b4a; }
+  .aeo-mid { color: #f59e0b; }
+  .aeo-high { color: #8dc63f; }
+  .page-type-badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: .5px;
+    text-transform: uppercase;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: #e8f4fd;
+    color: #185fa5;
+  }
+  .page-type-badge.conversion { background: #fce4ec; color: #880e4f; }
+  .page-type-badge.article { background: #f3e5f5; color: #4a148c; }
+
+  /* Buyer journey */
+  .journey-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .journey-card { border-radius: 10px; padding: 16px; border: 1px solid var(--tpg-border); }
+  .journey-stage { font-size: 10px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 8px; }
+  .journey-stage.awareness { color: #e24b4a; }
+  .journey-stage.consideration { color: #f59e0b; }
+  .journey-stage.decision { color: #8dc63f; }
+  .journey-text { font-size: 13px; line-height: 1.5; color: var(--tpg-text); }
+
+  /* Persona list */
+  .persona-list { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .persona-chip {
+    background: var(--tpg-light);
+    border-radius: 8px;
+    padding: 12px 16px;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .persona-icon {
+    width: 32px; height: 32px;
+    background: var(--tpg-teal);
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    color: white;
+    font-size: 14px;
+    flex-shrink: 0;
+  }
+
+  /* Citation section */
+  .citation-score-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px; }
+
+  /* Schema opportunities */
+  .schema-list { list-style: none; }
+  .schema-item { display: flex; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--tpg-border); font-size: 14px; }
+  .schema-item:last-child { border-bottom: none; }
+  .schema-bullet { color: var(--tpg-teal); font-weight: 700; flex-shrink: 0; }
+
+  /* CTA */
+  .cta-block {
+    background: var(--tpg-navy);
+    border-radius: 16px;
+    padding: 48px;
+    text-align: center;
+    color: white;
+    margin-top: 32px;
+  }
+  .cta-block h2 { font-family: 'DM Serif Display', serif; font-size: 32px; font-weight: 400; margin-bottom: 12px; }
+  .cta-block p { opacity: .7; font-size: 15px; max-width: 480px; margin: 0 auto 28px; }
+  .cta-btn {
+    display: inline-block;
+    background: var(--tpg-lime);
+    color: var(--tpg-navy);
+    font-weight: 700;
+    font-size: 14px;
+    letter-spacing: .5px;
+    padding: 14px 36px;
+    border-radius: 100px;
+    text-decoration: none;
+    transition: opacity .15s;
+  }
+  .cta-btn:hover { opacity: .88; }
+
+  /* Print */
+  @media print { body { background: white; } .cta-block { background: var(--tpg-navy) !important; } }
+
+  /* Responsive */
+  @media (max-width: 700px) {
+    .header-content { flex-direction: column; }
+    .engine-grid { grid-template-columns: repeat(2, 1fr); }
+    .dim-grid { grid-template-columns: repeat(2, 1fr); }
+    .stats-row { grid-template-columns: repeat(2, 1fr); }
+    .journey-grid { grid-template-columns: 1fr; }
+    .persona-list { grid-template-columns: 1fr; }
+    .citation-score-row { grid-template-columns: 1fr; }
+    .domain-info h1 { font-size: 28px; }
+    .score-number { font-size: 52px; }
+    .report-header { padding: 24px; }
+  }
+</style>
+</head>
+<body>
+
+<div id="loading">
+  <div class="tpg-logo-mark">TPG</div>
+  <div class="loading-text">Loading your AXO Diagnostic</div>
+  <div class="loading-sub" id="loading-sub">Fetching report from Render...</div>
+</div>
+
+<div id="error">
+  <div class="error-card">
+    <div class="error-code">404</div>
+    <h2 style="margin-bottom:12px;color:#1a2332;">Report Not Found</h2>
+    <p style="color:#5a6878;font-size:14px;" id="error-msg">The job ID in the URL could not be found. Please check the link and try again.</p>
+    <a href="https://www.pedowitzgroup.com/contact" style="display:inline-block;margin-top:24px;background:#007b8e;color:white;padding:10px 24px;border-radius:100px;text-decoration:none;font-size:14px;font-weight:500;">Contact TPG</a>
+  </div>
+</div>
+
+<div id="report"></div>
+
+<script>
+const API_BASE = 'https://axo-api.onrender.com';
+
+function getJobId() {
+  const params = new URLSearchParams(window.location.search);
+  return params.get('jobId') || params.get('jobid') || params.get('job_id');
+}
+
+function getTierLabel(score) {
+  if (score >= 70) return { label: 'STRONG POSITION', cls: 'tier-strong' };
+  if (score >= 45) return { label: 'DEVELOPING', cls: 'tier-developing' };
+  return { label: 'CRITICAL GAP', cls: 'tier-critical' };
+}
+
+function getTierColor(score) {
+  if (score >= 70) return 'var(--score-strong)';
+  if (score >= 45) return 'var(--score-developing)';
+  return 'var(--score-critical)';
+}
+
+function getAeoClass(sig) {
+  if (sig >= 7) return 'aeo-high';
+  if (sig >= 5) return 'aeo-mid';
+  return 'aeo-low';
+}
+
+function getPageTypeCls(type) {
+  if (type === 'conversion') return 'conversion';
+  if (type === 'article') return 'article';
+  return '';
+}
+
+function escHtml(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function formatDomain(url) {
+  try { return new URL(url).hostname.replace('www.',''); } catch(e) { return url; }
+}
+
+function buildReport(data) {
+  const job = data.job;
+  const result = data.result;
+  const report = result.report;
+  const snap = report.axoSnapshot || {};
+  const intel = report.intelligence || {};
+  const citation = report.citationSimulation || {};
+  const siteStats = report.siteWideStats || {};
+  const gapPages = (report.gapPages || []).slice(0, 20);
+  const topPages = (report.topPages || []).slice(0, 10);
+  const competitors = report.competitors || [];
+
+  const score = result.score;
+  const tier = getTierLabel(score);
+  const scoreColor = getTierColor(score);
+  const scoreByEngine = result.scores_by_engine || {};
+  const enginesUsed = result.engines_used || [];
+  const domain = job.domain || formatDomain(job.start_url);
+  const dateStr = new Date(result.generated_at || job.completed_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+
+  const enginesHtml = enginesUsed.map(eng => {
+    const s = scoreByEngine[eng] || 0;
+    const pct = (s / 100 * 100).toFixed(0);
+    const names = { claude: 'Claude', openai: 'ChatGPT', perplexity: 'Perplexity', gemini: 'Gemini' };
+    return `<div class="engine-card engine-${eng}">
+      <div class="engine-name">${escHtml(names[eng] || eng)}</div>
+      <div class="engine-score">${s}</div>
+      <div style="font-size:11px;color:var(--tpg-muted);margin-top:4px;">/100</div>
+      <div class="engine-bar-wrap"><div class="engine-bar" style="width:${pct}%"></div></div>
+    </div>`;
+  }).join('');
+
+  const quickWinsHtml = (intel.quickWins || []).map(w =>
+    `<li class="win-item">
+      <div class="win-dot"><svg viewBox="0 0 12 12" fill="none"><polyline points="2,6 5,9 10,3" stroke="#0d1b2a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+      <div class="win-text">${escHtml(w)}</div>
+    </li>`
+  ).join('');
+
+  const contentGapsHtml = (intel.topContentGaps || []).map(g =>
+    `<li class="win-item">
+      <div class="win-dot" style="background:#e24b4a;"><svg viewBox="0 0 12 12" fill="none"><line x1="3" y1="3" x2="9" y2="9" stroke="white" stroke-width="2" stroke-linecap="round"/><line x1="9" y1="3" x2="3" y2="9" stroke="white" stroke-width="2" stroke-linecap="round"/></svg></div>
+      <div class="win-text">${escHtml(g)}</div>
+    </li>`
+  ).join('');
+
+  const buyerJourneyGaps = intel.buyerJourneyGaps || {};
+  const journeyHtml = `
+    <div class="journey-card">
+      <div class="journey-stage awareness">Awareness</div>
+      <div class="journey-text">${escHtml(buyerJourneyGaps.awareness || 'No data available.')}</div>
+    </div>
+    <div class="journey-card">
+      <div class="journey-stage consideration">Consideration</div>
+      <div class="journey-text">${escHtml(buyerJourneyGaps.consideration || 'No data available.')}</div>
+    </div>
+    <div class="journey-card">
+      <div class="journey-stage decision">Decision</div>
+      <div class="journey-text">${escHtml(buyerJourneyGaps.decision || 'No data available.')}</div>
+    </div>`;
+
+  const personasHtml = (intel.buyerPersonas || []).map((p, i) => {
+    const icons = ['👤','👔','🏢','📊'];
+    return `<div class="persona-chip">
+      <div class="persona-icon">${icons[i % icons.length]}</div>
+      <div style="font-size:13px;color:var(--tpg-text);">${escHtml(p)}</div>
+    </div>`;
+  }).join('');
+
+  const schemaHtml = (intel.schemaOpportunities || []).map(s =>
+    `<li class="schema-item"><span class="schema-bullet">→</span><span>${escHtml(s)}</span></li>`
+  ).join('');
+
+  const faqHtml = (intel.missingFAQOpportunities || []).map(f =>
+    `<li class="schema-item"><span class="schema-bullet">?</span><span>${escHtml(f)}</span></li>`
+  ).join('');
+
+  const gapPagesHtml = gapPages.map(p => {
+    const signals = (p.signals || []).slice(0, 3).map(s =>
+      `<span class="signal-badge ${p.aeoSignal < 5 ? 'weak' : ''}">${escHtml(s.replace(/_/g,' '))}</span>`
+    ).join('');
+    return `<tr>
+      <td>
+        <div class="page-url"><a href="${escHtml(p.url)}" target="_blank" rel="noopener" style="color:var(--tpg-teal);text-decoration:none;">${escHtml(p.title || p.url)}</a></div>
+        <div style="margin-top:4px;">${signals}</div>
+      </td>
+      <td><span class="page-type-badge ${getPageTypeCls(p.type)}">${escHtml(p.type || 'page')}</span></td>
+      <td><span class="aeo-signal ${getAeoClass(p.aeoSignal)}">${(p.aeoSignal || 0).toFixed(1)}/10</span></td>
+      <td style="font-size:12px;color:var(--tpg-muted);">${p.changed ? '🔄 Changed' : '—'}</td>
+    </tr>`;
+  }).join('');
+
+  const topSignals = siteStats.topSignals || {};
+  const topSignalsHtml = Object.entries(topSignals).map(([k,v]) =>
+    `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--tpg-border);">
+      <span style="font-size:13px;text-transform:capitalize;">${k.replace(/_/g,' ')}</span>
+      <span style="font-size:13px;font-weight:600;color:var(--tpg-teal);">${v} pages</span>
+    </div>`
+  ).join('');
+
+  const competitorHtml = competitors.length ? `
+    <div class="section-card">
+      <div class="section-header">
+        <div class="section-num">07</div>
+        <div class="section-title">Competitor Analysis</div>
+        <div class="section-sub">${competitors.length} competitor${competitors.length!==1?'s':''} scored</div>
+      </div>
+      <table class="gap-table">
+        <thead><tr>
+          <th>Domain</th><th>AXO Score</th><th>Pages Crawled</th><th>Avg AEO Signal</th>
+        </tr></thead>
+        <tbody>
+          <tr style="background:#f8fffe;">
+            <td><strong>${escHtml(domain)}</strong> <span style="font-size:11px;color:var(--tpg-teal);font-weight:600;">YOU</span></td>
+            <td><span class="aeo-signal" style="font-weight:700;font-size:16px;color:${scoreColor}">${score}</span></td>
+            <td>${snap.pagesFetched || 0}</td>
+            <td>${(snap.avgAeoSignal || 0).toFixed(1)}</td>
+          </tr>
+          ${competitors.map(c => `<tr>
+            <td>${escHtml(c.domain)}</td>
+            <td><span class="aeo-signal ${getAeoClass((c.score||0)/10)}">${c.score || 0}</span></td>
+            <td>${c.pagesFetched || 0}</td>
+            <td>${(c.avgAeoSignal || 0).toFixed(1)}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>` : '';
+
+  const likelyCitedHtml = (citation.likelyCitedPages || []).slice(0,5).map(p =>
+    `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--tpg-border);">
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:480px;">${escHtml(p.title || p.url)}</div>
+        <div style="font-size:11px;color:var(--tpg-muted);margin-top:2px;">${(p.reasons||[]).join(' · ')}</div>
+      </div>
+      <div style="font-size:15px;font-weight:600;color:var(--tpg-teal);margin-left:16px;flex-shrink:0;">${p.probability || 0}%</div>
+    </div>`
+  ).join('');
+
+  const html = `
+    <div class="report-header">
+      <div class="header-top">
+        <div class="tpg-brand">
+          <div class="brand-dot"></div>
+          <div class="brand-name">THE PEDOWITZ GROUP · AXO DIAGNOSTIC</div>
+        </div>
+        <div class="report-badge">Confidential Report</div>
+      </div>
+      <div class="header-content">
+        <div class="domain-info">
+          <h1>${escHtml(domain)}</h1>
+          <div class="domain-meta">
+            <div class="domain-stat"><strong>${snap.pagesFetched || 0}</strong> pages crawled</div>
+            <div class="domain-stat"><strong>${enginesUsed.length}</strong> AI engines</div>
+            <div class="domain-stat">${dateStr}</div>
+          </div>
+        </div>
+        <div class="hero-score">
+          <div class="score-number" style="color:${scoreColor}">${score}</div>
+          <div class="score-label">AXO Score / 100</div>
+          <div class="score-tier ${tier.cls}">${tier.label}</div>
+        </div>
+      </div>
+    </div>
+
+    ${intel.quickWins && intel.quickWins.length ? `
+    <div class="exec-summary">
+      <div class="exec-label">What This Means</div>
+      <div class="exec-text">${escHtml(domain)} scored <strong>${score}/100</strong> — ${tier.label.toLowerCase()}. ${snap.citationProbability === 100 ? 'Citation probability is strong across evaluated pages.' : `Citation probability: ${snap.citationProbability || 0}%.`} ${snap.avgAeoSignal ? `Average AEO signal across ${snap.pagesFetched} pages: ${snap.avgAeoSignal.toFixed(1)}/10.` : ''} ${intel.quickWins.length} immediate quick wins and ${intel.topContentGaps ? intel.topContentGaps.length : 0} content gaps identified.</div>
+    </div>` : ''}
+
+    <div class="section-card">
+      <div class="section-header">
+        <div class="section-num" style="background:transparent;border:1.5px solid var(--tpg-teal);color:var(--tpg-teal);">LLM</div>
+        <div class="section-title">Multi-LLM Panel</div>
+        <div class="section-sub">Independent scores from ${enginesUsed.length} engines</div>
+      </div>
+      <div class="engine-grid">${enginesHtml}</div>
+    </div>
+
+    <div class="section-card">
+      <div class="section-header">
+        <div class="section-num">01</div>
+        <div class="section-title">Site-wide AEO Stats</div>
+        <div class="section-sub">${snap.pagesFetched || 0} pages analyzed</div>
+      </div>
+      <div class="stats-row">
+        <div class="stat-chip">
+          <div class="stat-chip-val" style="color:var(--score-critical)">${siteStats.lowAeo || 0}</div>
+          <div class="stat-chip-label">Low AEO signal</div>
+        </div>
+        <div class="stat-chip">
+          <div class="stat-chip-val" style="color:var(--score-developing)">${siteStats.midAeo || 0}</div>
+          <div class="stat-chip-label">Mid AEO signal</div>
+        </div>
+        <div class="stat-chip">
+          <div class="stat-chip-val" style="color:var(--score-strong)">${siteStats.highAeo || 0}</div>
+          <div class="stat-chip-label">High AEO signal</div>
+        </div>
+        <div class="stat-chip">
+          <div class="stat-chip-val">${snap.changedPages || 0}</div>
+          <div class="stat-chip-label">Changed pages</div>
+        </div>
+      </div>
+      ${topSignalsHtml ? `<div style="margin-top:20px;"><div style="font-size:12px;font-weight:600;letter-spacing:.5px;text-transform:uppercase;color:var(--tpg-muted);margin-bottom:8px;">Top AEO Signals Present</div>${topSignalsHtml}</div>` : ''}
+    </div>
+
+    <div class="section-card">
+      <div class="section-header">
+        <div class="section-num">02</div>
+        <div class="section-title">Quick Wins</div>
+        <div class="section-sub">${(intel.quickWins||[]).length} immediate opportunities</div>
+      </div>
+      <ul class="win-list">${quickWinsHtml || '<li class="win-item"><div class="win-text" style="color:var(--tpg-muted);">No quick wins data available.</div></li>'}</ul>
+    </div>
+
+    <div class="section-card">
+      <div class="section-header">
+        <div class="section-num">03</div>
+        <div class="section-title">Content Gaps</div>
+        <div class="section-sub">${(intel.topContentGaps||[]).length} gaps identified</div>
+      </div>
+      <ul class="win-list">${contentGapsHtml || '<li class="win-item"><div class="win-text" style="color:var(--tpg-muted);">No content gap data available.</div></li>'}</ul>
+    </div>
+
+    <div class="section-card">
+      <div class="section-header">
+        <div class="section-num">04</div>
+        <div class="section-title">Buyer Journey Gaps</div>
+        <div class="section-sub">Awareness → Consideration → Decision</div>
+      </div>
+      <div class="journey-grid">${journeyHtml}</div>
+    </div>
+
+    <div class="section-card">
+      <div class="section-header">
+        <div class="section-num">05</div>
+        <div class="section-title">Buyer Personas</div>
+        <div class="section-sub">${(intel.buyerPersonas||[]).length} personas identified</div>
+      </div>
+      <div class="persona-list">${personasHtml || '<div style="color:var(--tpg-muted);font-size:14px;">No persona data available.</div>'}</div>
+    </div>
+
+    <div class="section-card">
+      <div class="section-header">
+        <div class="section-num">06</div>
+        <div class="section-title">Citation Readiness</div>
+        <div class="section-sub">AI citation probability analysis</div>
+      </div>
+      <div class="citation-score-row">
+        <div class="stat-chip">
+          <div class="stat-chip-val" style="color:${getTierColor(citation.citationProbability||0)}">${citation.citationProbability || 0}%</div>
+          <div class="stat-chip-label">Citation probability</div>
+        </div>
+        <div class="stat-chip">
+          <div class="stat-chip-val" style="color:${getTierColor(citation.trustScore||0)}">${citation.trustScore || 0}</div>
+          <div class="stat-chip-label">Trust score</div>
+        </div>
+        <div class="stat-chip">
+          <div class="stat-chip-val">${(citation.likelyCitedPages||[]).length}</div>
+          <div class="stat-chip-label">Likely cited pages</div>
+        </div>
+      </div>
+      ${likelyCitedHtml ? `<div style="margin-top:16px;"><div style="font-size:12px;font-weight:600;letter-spacing:.5px;text-transform:uppercase;color:var(--tpg-muted);margin-bottom:4px;">Most Likely Cited Pages</div>${likelyCitedHtml}</div>` : ''}
+      ${(citation.gaps||[]).length ? `<div style="margin-top:16px;background:#fff3e0;border-radius:8px;padding:14px 16px;border-left:3px solid #f59e0b;">
+        <div style="font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#e65100;margin-bottom:8px;">Citation Gaps</div>
+        ${citation.gaps.map(g => `<div style="font-size:13px;margin-bottom:6px;">• ${escHtml(g)}</div>`).join('')}
+      </div>` : ''}
+    </div>
+
+    ${schemaHtml ? `<div class="section-card">
+      <div class="section-header">
+        <div class="section-num">07</div>
+        <div class="section-title">Schema Opportunities</div>
+      </div>
+      <ul class="schema-list">${schemaHtml}</ul>
+    </div>` : ''}
+
+    ${faqHtml ? `<div class="section-card">
+      <div class="section-header">
+        <div class="section-num">08</div>
+        <div class="section-title">Missing FAQ Opportunities</div>
+      </div>
+      <ul class="schema-list">${faqHtml}</ul>
+    </div>` : ''}
+
+    ${competitorHtml}
+
+    <div class="section-card">
+      <div class="section-header">
+        <div class="section-num">09</div>
+        <div class="section-title">Gap Pages</div>
+        <div class="section-sub">Pages with lowest AEO signal — highest priority</div>
+      </div>
+      <div style="overflow-x:auto;">
+        <table class="gap-table">
+          <thead><tr>
+            <th>Page</th><th>Type</th><th>AEO Signal</th><th>Changed</th>
+          </tr></thead>
+          <tbody>${gapPagesHtml || '<tr><td colspan="4" style="text-align:center;color:var(--tpg-muted);padding:24px;">No gap pages data available.</td></tr>'}</tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="cta-block">
+      <h2>Turn This AXO Report Into Revenue Impact</h2>
+      <p>Your team now has a clear map of where AI visibility is strong, where buyers cannot find you, and what to fix first. TPG can help operationalize this into a 90-day execution plan.</p>
+      <a href="https://www.pedowitzgroup.com/contact" class="cta-btn">Book a Strategy Session</a>
+      <div style="margin-top:24px;opacity:.4;font-size:12px;">The Pedowitz Group · Revenue Marketing.AI · pedowitzgroup.com</div>
+    </div>
+  `;
+
+  document.getElementById('report').innerHTML = html;
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('report').style.display = 'block';
+}
+
+async function loadReport() {
+  const jobId = getJobId();
+
+  if (!jobId) {
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('error').style.display = 'flex';
+    document.getElementById('error-msg').textContent = 'No job ID found in the URL. Add ?jobId=axo_xxx to the URL.';
+    return;
+  }
+
+  document.getElementById('loading-sub').textContent = `Loading job ${jobId}...`;
+
+  try {
+    const res = await fetch(`${API_BASE}/axo/jobs/${encodeURIComponent(jobId)}/results`, {
+      headers: { 'Accept': 'application/json' }
+    });
+
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+
+    const data = await res.json();
+
+    if (!data.success || !data.result) {
+      throw new Error('Report data not available yet. The job may still be processing.');
+    }
+
+    buildReport(data);
+
+  } catch (err) {
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('error').style.display = 'flex';
+    document.getElementById('error-msg').textContent = err.message || 'Failed to load report. Please try again.';
+  }
+}
+
+loadReport();
+</script>
+</body>
+</html>
