@@ -46,34 +46,53 @@ function countSignals(pages: CrawledPage[]) {
 
 export function buildCompactPrompt(domain: string, summary: ReturnType<typeof reducePages>) {
   const top = summary.recommendedPagesForLLM.slice(0, 12).map(p => ({
-    title: p.title.slice(0, 90), url: p.url, type: p.contentType, aeo: p.aeoSignal, priority: p.classification?.priority || 0, action: p.classification?.action || 'score', signals: p.signals, excerpt: p.excerpt.slice(0, 260)
+    title: p.title.slice(0, 90),
+    url: p.url,
+    type: p.contentType,
+    aeo: p.aeoSignal,
+    priority: p.classification?.priority || 0,
+    action: p.classification?.action || 'score',
+    signals: p.signals,
+    excerpt: p.excerpt.slice(0, 260)
   }));
-  const changed = summary.changedPages.slice(0, 10).map(p => ({ title: p.title.slice(0, 90), url: p.url, type: p.contentType, aeo: p.aeoSignal, excerpt: p.excerpt.slice(0, 180) }));
-  return JSON.stringify({
-    instruction: 'Score AXO/AEO readiness using only this crawl data. Return compact JSON.',
-    domain,
-    stats: {
-      pagesFetched: summary.pagesFetched,
-      avgAeoSignal: summary.avgAeoSignal,
-      highAeo: summary.highAeo,
-      midAeo: summary.midAeo,
-      lowAeo: summary.lowAeo,
-      typeDistribution: summary.typeDistribution,
-      topSignals: summary.topSignals,
-      changedPages: summary.changedPages.length,
-      unchangedPages: summary.unchangedPages.length
-    },
-    topPages: top,
-    changedPages: changed,
-    outputSchema: {
-      aeoReadinessScore: 'number 0-100',
-      rationale: '2 sentences',
-      topContentGaps: ['12 short gaps'],
-      missingFAQOpportunities: ['12 questions'],
-      buyerPersonas: ['4 personas'],
-      buyerJourneyGaps: { awareness: '', aware: '', compare: '', consideration: '', decision: '' },
-      quickWins: ['5 wins'],
-      schemaOpportunities: ['3 schema improvements']
-    }
-  });
+
+  const changed = summary.changedPages.slice(0, 10).map(p => ({
+    title: p.title.slice(0, 90),
+    url: p.url,
+    type: p.contentType,
+    aeo: p.aeoSignal,
+    excerpt: p.excerpt.slice(0, 180)
+  }));
+
+  return `You are an AEO/AXO readiness scorer. Analyze this website crawl data and return ONLY a JSON object with no markdown, no explanation, no code fences, just raw JSON starting with { and ending with }.
+
+Domain: ${domain}
+Pages fetched: ${summary.pagesFetched}
+Avg AEO signal: ${summary.avgAeoSignal}
+High AEO pages: ${summary.highAeo}
+Mid AEO pages: ${summary.midAeo}
+Low AEO pages: ${summary.lowAeo}
+Top signals: ${JSON.stringify(summary.topSignals)}
+Changed pages: ${summary.changedPages.length}
+
+Top pages:
+${top.map(p => `- ${p.title} (aeo:${p.aeo}, signals:${p.signals.join(',')})\n  excerpt: ${p.excerpt}`).join('\n')}
+
+${changed.length ? `Changed pages since last scan:\n${changed.map(p => `- ${p.title} (aeo:${p.aeo})`).join('\n')}` : ''}
+
+Return this exact JSON structure with no other text:
+{
+  "aeoReadinessScore": <number 0-100>,
+  "rationale": "<2 sentences explaining the score>",
+  "quickWins": ["<win1>", "<win2>", "<win3>", "<win4>", "<win5>"],
+  "topContentGaps": ["<gap1>", "<gap2>", "<gap3>", "<gap4>", "<gap5>"],
+  "missingFAQOpportunities": ["<question1>", "<question2>", "<question3>"],
+  "buyerPersonas": ["<persona1>", "<persona2>", "<persona3>", "<persona4>"],
+  "schemaOpportunities": ["<opportunity1>", "<opportunity2>", "<opportunity3>"],
+  "buyerJourneyGaps": {
+    "awareness": "<gap>",
+    "consideration": "<gap>",
+    "decision": "<gap>"
+  }
+}`;
 }
