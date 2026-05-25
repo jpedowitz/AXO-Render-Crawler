@@ -9,7 +9,7 @@ import { blendScores, deterministicScore } from '../scorer.js';
 import { buildReport } from '../report.js';
 import { simulateCitationReadiness } from '../citation.js';
 import { maybeStorePageEmbeddings } from '../embeddings.js';
-import { event, updateJob } from '../jobService.js';
+import { event, updateJob } from '../api/jobService.js';
 
 requireConfig();
 
