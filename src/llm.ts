@@ -36,7 +36,9 @@ async function withTimer(engine: string, fn: () => Promise<any>): Promise<Engine
 async function callClaude(prompt: string) {
   const client = new Anthropic({ apiKey: config.anthropicApiKey });
   const resp = await client.messages.create({
-    model: 'model: 'claude-haiku-4-5-20251001',', max_tokens: 1600, temperature: 0,
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 1600,
+    temperature: 0,
     messages: [{ role: 'user', content: prompt }]
   });
   const text = resp.content.map((c: any) => c.type === 'text' ? c.text : '').join('\n');
