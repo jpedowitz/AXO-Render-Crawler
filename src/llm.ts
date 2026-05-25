@@ -70,6 +70,7 @@ async function callGemini(prompt: string) {
     body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 1600, temperature: 0 } })
   });
   const json = await resp.json();
+  console.log('[GEMINI RAW]', JSON.stringify(json).slice(0, 500));
   return parseJson(json.candidates?.[0]?.content?.parts?.[0]?.text || '{}');
 }
 
