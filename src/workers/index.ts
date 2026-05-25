@@ -13,7 +13,6 @@ import { event, updateJob } from '../api/jobService.js';
 
 requireConfig();
 
-
 async function annotatePageChangesAndUpdateCache(domain: string, pages: CrawledPage[]) {
   const batchSize = 100;
   for (let offset = 0; offset < pages.length; offset += batchSize) {
@@ -127,51 +126,52 @@ async function runDiagnostic(jobId: string) {
      on conflict (job_id) do update set citation_probability=excluded.citation_probability, answerability_score=excluded.answerability_score, trust_score=excluded.trust_score, semantic_completeness=excluded.semantic_completeness, simulation=excluded.simulation, created_at=now()`,
     [jobId, citationSimulation.citationProbability, citationSimulation.answerabilityScore, citationSimulation.trustScore, citationSimulation.semanticCompleteness, JSON.stringify(citationSimulation)]
   );
+
   const embeddingResult = await maybeStorePageEmbeddings(jobId, pages);
   await event(jobId, 'crawl.completed', { pagesFetched: summary.pagesFetched, avgAeoSignal: summary.avgAeoSignal, changedPages: summary.changedPages.length, citationProbability: citationSimulation.citationProbability, embeddings: embeddingResult });
 
   await updateJob(jobId, { stage: 'scoring' });
   const prompt = buildCompactPrompt(job.domain, summary);
-  
   const llmPanel = await runLLMPanel(prompt);
-console.log('[LLM PANEL]', JSON.stringify(llmPanel.map(r => ({ engine: r.engine, ok: r.ok, score: r.score, ms: r.ms, error: r.error, dataKeys: r.data ? Object.keys(r.data) : null }))));
   const blended = blendScores(summary, llmPanel);
 
   let competitorSummaries: any[] = [];
   const competitors: string[] = Array.isArray(job.competitors) ? job.competitors : [];
+
   if (competitors.length) {
     await updateJob(jobId, { stage: 'competitor_scoring' });
-   competitorSummaries = await Promise.all(competitors.slice(0, 5).map(async domain => {
-  try {
-    await query(`insert into axo_competitors (job_id, domain, status) values ($1,$2,'running') on conflict (job_id, domain) do update set status='running'`, [jobId, domain]);
-    
-    const compPages = await Promise.race([
-      crawlSite({
-        startUrl: `https://${domain}`,
-        domain,
-        maxPages: job.competitor_limit,
-        depth: 3,
-        includeSubdomains: false,
-        timeoutMs: config.crawlTimeoutMs,
-        concurrency: Math.min(config.crawlConcurrency, 15),
-        perHostConcurrency: config.crawlPerHostConcurrency
-      }),
-      new Promise<never>((_, reject) => 
-        setTimeout(() => reject(new Error(`Competitor crawl timeout: ${domain}`)), 45000)
-      )
-    ]);
+    competitorSummaries = await Promise.all(competitors.slice(0, 5).map(async domain => {
+      try {
+        await query(`insert into axo_competitors (job_id, domain, status) values ($1,$2,'running') on conflict (job_id, domain) do update set status='running'`, [jobId, domain]);
 
-    await annotatePageChangesAndUpdateCache(domain, compPages);
-    const compSummary = reducePages(compPages);
-    const compScore = deterministicScore(compSummary);
-    await query(`update axo_competitors set status='complete', pages_fetched=$3, summary=$4, score=$5, completed_at=now() where job_id=$1 and domain=$2`, [jobId, domain, compSummary.pagesFetched, JSON.stringify(compSummary), compScore]);
-    return { domain, score: compScore, pagesFetched: compSummary.pagesFetched, avgAeoSignal: compSummary.avgAeoSignal };
-  } catch (err: any) {
-    console.log(`[competitor] ${domain} failed: ${err?.message}`);
-    await query(`update axo_competitors set status='failed', completed_at=now() where job_id=$1 and domain=$2`, [jobId, domain]);
-    return { domain, score: 0, pagesFetched: 0, avgAeoSignal: 0, error: err?.message };
+        const compPages = await Promise.race([
+          crawlSite({
+            startUrl: `https://${domain}`,
+            domain,
+            maxPages: job.competitor_limit,
+            depth: 3,
+            includeSubdomains: false,
+            timeoutMs: config.crawlTimeoutMs,
+            concurrency: Math.min(config.crawlConcurrency, 15),
+            perHostConcurrency: config.crawlPerHostConcurrency
+          }),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error(`Competitor crawl timeout: ${domain}`)), 45000)
+          )
+        ]);
+
+        await annotatePageChangesAndUpdateCache(domain, compPages);
+        const compSummary = reducePages(compPages);
+        const compScore = deterministicScore(compSummary);
+        await query(`update axo_competitors set status='complete', pages_fetched=$3, summary=$4, score=$5, completed_at=now() where job_id=$1 and domain=$2`, [jobId, domain, compSummary.pagesFetched, JSON.stringify(compSummary), compScore]);
+        return { domain, score: compScore, pagesFetched: compSummary.pagesFetched, avgAeoSignal: compSummary.avgAeoSignal };
+      } catch (err: any) {
+        console.log(`[competitor] ${domain} failed: ${err?.message}`);
+        await query(`update axo_competitors set status='failed', completed_at=now() where job_id=$1 and domain=$2`, [jobId, domain]);
+        return { domain, score: 0, pagesFetched: 0, avgAeoSignal: 0, error: err?.message };
+      }
+    }));
   }
-}));
 
   await updateJob(jobId, { stage: 'reporting' });
   const report = buildReport({ job, summary, llmPanel, blended, competitorSummaries, citationSimulation, embeddingResult });
