@@ -42,6 +42,33 @@ export interface CrawlOptions {
   maxBatches?: number;
 }
 
+// ── User-Agent rotation ───────────────────────────────────────────────
+// Use Googlebot so well-behaved sites serve real content, not bot blocks
+
+const USER_AGENT = 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)';
+
+// ── Bot-block detector ────────────────────────────────────────────────
+
+function isBlockedPage(title: string, html: string, statusCode: number): boolean {
+  if (statusCode === 403 || statusCode === 401 || statusCode === 429) return true;
+  const t = title.toLowerCase();
+  if (
+    t.includes('access denied') ||
+    t.includes('access to this page has been denied') ||
+    t.includes('403 forbidden') ||
+    t.includes('just a moment') ||    // Cloudflare
+    t.includes('attention required') || // Cloudflare
+    t.includes('checking your browser') ||
+    t.includes('enable javascript') ||
+    t.includes('please wait') ||
+    t === 'error' ||
+    t === ''
+  ) return true;
+  // Too short to be real content
+  if (html.length < 500) return true;
+  return false;
+}
+
 // ── Priority scorer ──────────────────────────────────────────────────
 
 function priorityScore(url: string): number {
@@ -140,7 +167,7 @@ async function discoverSitemap(domain: string, timeoutMs: number): Promise<strin
       const timer = setTimeout(() => controller.abort(), perReqTimeout);
       const res = await fetch(sitemapUrl, {
         signal: controller.signal as any,
-        headers: { 'User-Agent': 'AXO-Diagnostic/2.0' },
+        headers: { 'User-Agent': USER_AGENT },
       });
       clearTimeout(timer);
       if (!res.ok) continue;
@@ -156,7 +183,7 @@ async function discoverSitemap(domain: string, timeoutMs: number): Promise<strin
           const t2 = setTimeout(() => ctrl2.abort(), perReqTimeout);
           const childRes = await fetch(childUrl, {
             signal: ctrl2.signal as any,
-            headers: { 'User-Agent': 'AXO-Diagnostic/2.0' },
+            headers: { 'User-Agent': USER_AGENT },
           });
           clearTimeout(t2);
           if (!childRes.ok) continue;
@@ -201,7 +228,7 @@ async function bfsDiscover(
       const timer = setTimeout(() => controller.abort(), 6000);
       const res = await fetch(url, {
         signal: controller.signal as any,
-        headers: { 'User-Agent': 'AXO-Diagnostic/2.0', Accept: 'text/html' },
+        headers: { 'User-Agent': USER_AGENT, Accept: 'text/html' },
         redirect: 'follow',
       });
       clearTimeout(timer);
@@ -218,7 +245,6 @@ async function bfsDiscover(
           const href = $(el).attr('href') || '';
           const resolved = new URL(href, base);
           resolved.hash = '';
-          // Strip UTM params
           const sp = new URLSearchParams(resolved.search);
           [...sp.keys()].filter(k => k.startsWith('utm')).forEach(k => sp.delete(k));
           resolved.search = sp.toString();
@@ -251,8 +277,9 @@ async function fetchPage(url: string, timeoutMs = 8000): Promise<CrawledPage | n
     const res = await fetch(url, {
       signal: controller.signal as any,
       headers: {
-        'User-Agent': 'AXO-Diagnostic/2.0 (compatible; site analysis)',
-        Accept: 'text/html,application/xhtml+xml',
+        'User-Agent': USER_AGENT,
+        'Accept': 'text/html,application/xhtml+xml',
+        'Accept-Language': 'en-US,en;q=0.9',
       },
       redirect: 'follow',
     });
@@ -264,6 +291,12 @@ async function fetchPage(url: string, timeoutMs = 8000): Promise<CrawledPage | n
     const html = await res.text();
     const $ = cheerio.load(html);
     const title = ($('title').first().text() || $('h1').first().text() || url).trim().substring(0, 200);
+
+    // Skip bot-blocked or empty pages — these poison the score
+    if (isBlockedPage(title, html, res.status)) {
+      return null;
+    }
+
     const { score, signals, excerpt, wordCount, text } = scoreAeo(html, url);
     const contentHash = createHash('md5').update(html.substring(0, 50000)).digest('hex');
     const type = classifyType(url);
