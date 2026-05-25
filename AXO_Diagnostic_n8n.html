@@ -1827,6 +1827,7 @@ function updateCrawlProgress(pagesProcessed, pagesFound) {
 
 function startDiagnostic() {
   // Read URL from intake input and update G.site
+  window._axoCurrentJobId = null;
   const urlInput = $('urlIn');
   if (urlInput && urlInput.value.trim()) {
     let raw = urlInput.value.trim().toLowerCase()
@@ -3630,6 +3631,7 @@ function resetForNewDiagnostic() {
   G._byEngine             = {};
   G._stageScores          = null;
   G._jobId                = null;
+  window._axoCurrentJobId = null;
   G._totalPagesCrawled    = 0;
   G._generatedAt          = null;
   G._companySummary       = '';
