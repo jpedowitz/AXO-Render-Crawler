@@ -67,7 +67,7 @@ async function callGemini(prompt: string) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${config.geminiApiKey}`;
   const resp = await fetch(url, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 1600, temperature: 0 } })
+    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 8192, temperature: 0 } })
   });
   const json = await resp.json();
   const raw = json.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
