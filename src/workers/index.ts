@@ -34,12 +34,14 @@ Buyer personas: ${personaText}
 Site context: ${summaryText}
 
 Rules:
-- Competitors must operate in the same industry and serve the same buyer personas
+- Competitors must be DIRECT competitors: same product category, same end customer, same purchase decision
 - Do not include the company itself (${domain})
-- Do not include generic consulting firms (Accenture, Deloitte, McKinsey etc.) unless this company IS a consulting firm
-- Do not include software testing tools unless this company IS a software testing company
+- NEVER include management consulting or IT services firms (Accenture, Deloitte, McKinsey, BCG, Capgemini, Infosys, Wipro, TCS, Cognizant, IBM Services) unless this company's PRIMARY business is management consulting or IT services
+- NEVER include software testing tools (Testim, Tricentis, Selenium, Mabl) unless this company's PRIMARY business is software testing tools
+- NEVER include general retailers (Amazon, Walmart) as competitors unless the company IS a general retailer
+- Only include companies whose customers would genuinely compare them against ${domain} before making a purchase
 - Return real companies with real public websites
-- If you are not confident about a competitor, omit it rather than guessing
+- If you are not confident a company is a direct competitor, omit it rather than guessing
 
 Return ONLY a valid JSON array with exactly this shape, nothing else:
 [
@@ -358,5 +360,7 @@ new Worker('axo-diagnostic', async bullJob => {
     throw err;
   }
 }, { connection: redis, concurrency: config.jobConcurrency });
+
+console.log(`[AXO worker] running with concurrency=${config.jobConcurrency}`);
 
 console.log(`[AXO worker] running with concurrency=${config.jobConcurrency}`);
