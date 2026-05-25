@@ -132,7 +132,7 @@ async function runDiagnostic(jobId: string) {
 
   await updateJob(jobId, { stage: 'scoring' });
   const prompt = buildCompactPrompt(job.domain, summary);
-  const llmPanel = await runLLMPanel(prompt);
+  
   const llmPanel = await runLLMPanel(prompt);
 console.log('[LLM PANEL]', JSON.stringify(llmPanel.map(r => ({ engine: r.engine, ok: r.ok, score: r.score, ms: r.ms, error: r.error, dataKeys: r.data ? Object.keys(r.data) : null }))));
   const blended = blendScores(summary, llmPanel);
