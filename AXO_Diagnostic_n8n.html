@@ -2721,58 +2721,6 @@ function renderNarrative() {
   if (n.ch10Title) setTitle('ch10Title', n.ch10Title);
 }
 
-  // Update exec stat labels with real persona/stage names
-  const statLbl3 = document.getElementById('statLbl3');
-  if (statLbl3 && G._personaCards && G._personaCards.length >= 2) {
-    const weakest = G._personaCards[G._personaCards.length - 1];
-    const words = (weakest.name || 'Weakest persona').split(' ');
-    let w = words.slice(0, 3);
-    while (w.length > 1 && /^(or|and|for|with|at|a|the|in|of)$/i.test(w[w.length - 1])) w.pop();
-    statLbl3.textContent = w.join(' ');
-  }
-
-  // Update ch5 competitive title from real competitor data
-  const ch5Title = document.getElementById('ch5Title');
-  if (ch5Title && G.competitors && G.competitors.length > 1) {
-    const you = G.competitors.find(c => c.you);
-    const above = G.competitors.filter(c => !c.you && c.axo > (you ? you.axo : 0));
-    const rank = above.length + 1;
-    const total = G.competitors.length;
-    const ordinals = ['', 'First', 'Second', 'Third', 'Fourth', 'Fifth', 'Sixth', 'Seventh'];
-    const ordinal = ordinals[rank] || ('#' + rank);
-    if (above.length === 0) {
-      ch5Title.textContent = 'You lead the field. Maintain the gap.';
-    } else if (rank === total) {
-      ch5Title.textContent = ordinal + ' of ' + total + '. The leaders have a content advantage you can close.';
-    } else {
-      ch5Title.textContent = ordinal + ' of ' + total + '. The ones above you are reachable. The ones below you are fading.';
-    }
-  }
-  const n = G._narrative || {};
-  if (!n || !Object.keys(n).length) {
-    if (window.axoLog) console.log('[AXO] renderNarrative: no narrative text yet');
-    return;
-  }
-  // Fill every element that has a data-n attribute
-  document.querySelectorAll('[data-n]').forEach(el => {
-    const key = el.getAttribute('data-n');
-    if (n[key]) {
-      // Preserve any existing bold/em HTML structure by setting innerHTML
-      // but sanitize to prevent XSS — narrative comes from our own Claude output
-      el.innerHTML = n[key]
-        .replace(/</g, '&lt;').replace(/>/g, '&gt;')
-        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-        .replace(/\*(.+?)\*/g, '<em>$1</em>');
-     
-    }
-  });
-  // Also fill the bottom line executive pull quote
-  const execNarr = document.querySelector('.exec__narr');
-  if (execNarr && n.bottomLine) {
-    execNarr.innerHTML = '<p>' + n.bottomLine.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>') + '</p><p class="exec__attr">— The bottom line</p>';
-  }
-}
-
 function renderAll() {
   const displayName = deriveCompanyName(G.site);
   $('uSite').textContent = G.site;
