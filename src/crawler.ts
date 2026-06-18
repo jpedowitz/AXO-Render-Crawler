@@ -42,8 +42,8 @@ export interface CrawlOptions {
   maxBatches?: number;
 }
 
-// ── User-Agent rotation ───────────────────────────────────────────────
-// Use Googlebot so well-behaved sites serve real content, not bot blocks
+// ── User-Agent ────────────────────────────────────────────────────────
+// Chrome UA — Googlebot caused bot-challenge pages on pedowitzgroup.com etc.
 
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
@@ -56,15 +56,14 @@ function isBlockedPage(title: string, html: string, statusCode: number): boolean
     t.includes('access denied') ||
     t.includes('access to this page has been denied') ||
     t.includes('403 forbidden') ||
-    t.includes('just a moment') ||    // Cloudflare
-    t.includes('attention required') || // Cloudflare
+    t.includes('just a moment') ||
+    t.includes('attention required') ||
     t.includes('checking your browser') ||
     t.includes('enable javascript') ||
     t.includes('please wait') ||
     t === 'error' ||
     t === ''
   ) return true;
-  // Too short to be real content
   if (html.length < 500) return true;
   return false;
 }
@@ -103,39 +102,26 @@ function commercialIntentScore(url: string): number {
 // ── AEO signal scorer ────────────────────────────────────────────────
 
 function scoreAeo(html: string, url: string): {
-  score: number;
-  signals: string[];
-  excerpt: string;
-  wordCount: number;
-  text: string;
+  score: number; signals: string[]; excerpt: string; wordCount: number; text: string;
 } {
   const signals: string[] = [];
   const lower = html.toLowerCase();
 
-  if (
-    lower.includes('"@type": "faqpage"') ||
-    lower.includes('"@type":"faqpage"') ||
-    lower.includes('faqpage')
-  ) signals.push('faq_schema');
-
+  if (lower.includes('"@type": "faqpage"') || lower.includes('"@type":"faqpage"') || lower.includes('faqpage'))
+    signals.push('faq_schema');
   if (/\b(best|top|leading|trusted|proven|certified|award|recognized)\b/.test(lower))
     signals.push('proof_language');
-
   if (/\b(vs\.|versus|compare|better than|alternative|difference between|compared to)\b/.test(lower))
     signals.push('comparison_language');
-
   if (/\b(how to|step.by.step|guide|tutorial|learn|understand|what is|why does)\b/.test(lower))
     signals.push('ai_language');
-
   if (/\b(contact|get started|demo|free trial|buy now|sign up|request|schedule)\b/.test(lower))
     signals.push('decision_language');
-
   if (/<h[1-6]/i.test(html)) signals.push('heading_structure');
 
   const text = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
   const wordCount = text.split(' ').filter(Boolean).length;
   const excerpt = text.substring(0, 300);
-
   const score = Math.min(
     10,
     signals.length * 1.5 +
@@ -147,24 +133,55 @@ function scoreAeo(html: string, url: string): {
   return { score, signals, excerpt, wordCount, text: text.substring(0, 5000) };
 }
 
-// ── Sitemap discovery ────────────────────────────────────────────────
+// ── Sitemap discovery ─────────────────────────────────────────────────
+// FIX: was 15% of crawlTimeoutMs (as low as 9s on 60s timeout).
+// Now has its own fixed 45s budget, independent of crawlTimeoutMs.
+// Also checks robots.txt for Sitemap: directive before trying candidate paths.
 
-async function discoverSitemap(domain: string, timeoutMs: number): Promise<string[]> {
+async function discoverSitemap(domain: string): Promise<string[]> {
+  const SITEMAP_BUDGET_MS = 45000;
+  const PER_REQ_MS = 10000;
+  const startTime = Date.now();
+
   const candidates = [
     `https://${domain}/sitemap.xml`,
     `https://${domain}/sitemap_index.xml`,
     `https://${domain}/sitemap-index.xml`,
     `https://www.${domain}/sitemap.xml`,
     `https://www.${domain}/sitemap_index.xml`,
+    `https://${domain}/wp-sitemap.xml`,
+    `https://${domain}/sitemap/sitemap.xml`,
+    `https://${domain}/sitemaps/sitemap.xml`,
+    `https://${domain}/page-sitemap.xml`,
+    `https://${domain}/post-sitemap.xml`,
   ];
 
+  // robots.txt often has a Sitemap: directive pointing to the real path
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), PER_REQ_MS);
+    const res = await fetch(`https://${domain}/robots.txt`, {
+      signal: ctrl.signal as any,
+      headers: { 'User-Agent': USER_AGENT },
+    });
+    clearTimeout(t);
+    if (res.ok) {
+      const txt = await res.text();
+      const matches = [...txt.matchAll(/^Sitemap:\s*(https?:\/\/[^\s]+)/gim)];
+      for (const m of matches) {
+        const url = m[1].trim();
+        if (!candidates.includes(url)) candidates.unshift(url);
+      }
+    }
+  } catch { /* robots.txt optional */ }
+
   const found = new Set<string>();
-  const perReqTimeout = Math.min(10000, timeoutMs);
 
   for (const sitemapUrl of candidates) {
+    if (Date.now() - startTime > SITEMAP_BUDGET_MS) break;
     try {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), perReqTimeout);
+      const timer = setTimeout(() => controller.abort(), PER_REQ_MS);
       const res = await fetch(sitemapUrl, {
         signal: controller.signal as any,
         headers: { 'User-Agent': USER_AGENT },
@@ -174,13 +191,14 @@ async function discoverSitemap(domain: string, timeoutMs: number): Promise<strin
 
       const xml = await res.text();
 
-      // Recurse into child sitemaps
+      // Recurse into child sitemaps (sitemap index files)
       const childMatches = [...xml.matchAll(/<loc>\s*(https?:\/\/[^<]+\.xml[^<]*)\s*<\/loc>/gi)];
-      for (const m of childMatches.slice(0, 20)) {
+      for (const m of childMatches.slice(0, 30)) {
+        if (Date.now() - startTime > SITEMAP_BUDGET_MS) break;
         const childUrl = m[1].trim();
         try {
           const ctrl2 = new AbortController();
-          const t2 = setTimeout(() => ctrl2.abort(), perReqTimeout);
+          const t2 = setTimeout(() => ctrl2.abort(), PER_REQ_MS);
           const childRes = await fetch(childUrl, {
             signal: ctrl2.signal as any,
             headers: { 'User-Agent': USER_AGENT },
@@ -195,13 +213,15 @@ async function discoverSitemap(domain: string, timeoutMs: number): Promise<strin
         } catch { /* continue */ }
       }
 
-      // Direct URLs in this sitemap
       [...xml.matchAll(/<loc>\s*(https?:\/\/[^<\s]+)\s*<\/loc>/gi)]
         .map(m => m[1].trim())
         .filter(u => !u.endsWith('.xml'))
         .forEach(u => found.add(u));
 
-      if (found.size > 0) break;
+      if (found.size > 0) {
+        console.log(`[crawler] Sitemap hit: ${sitemapUrl} → ${found.size} URLs`);
+        break;
+      }
     } catch { /* try next */ }
   }
 
@@ -260,9 +280,9 @@ async function bfsDiscover(
           visited.add(clean);
           queue.push(clean);
           found.push(clean);
-        } catch { /* skip bad href */ }
+        } catch { /* skip */ }
       });
-    } catch { /* skip failed fetch */ }
+    } catch { /* skip */ }
   }
 
   return found;
@@ -292,10 +312,7 @@ async function fetchPage(url: string, timeoutMs = 8000): Promise<CrawledPage | n
     const $ = cheerio.load(html);
     const title = ($('title').first().text() || $('h1').first().text() || url).trim().substring(0, 200);
 
-    // Skip bot-blocked or empty pages — these poison the score
-    if (isBlockedPage(title, html, res.status)) {
-      return null;
-    }
+    if (isBlockedPage(title, html, res.status)) return null;
 
     const { score, signals, excerpt, wordCount, text } = scoreAeo(html, url);
     const contentHash = createHash('md5').update(html.substring(0, 50000)).digest('hex');
@@ -305,25 +322,12 @@ async function fetchPage(url: string, timeoutMs = 8000): Promise<CrawledPage | n
     const aiRel = score >= 6 ? 3 : score >= 4 ? 2 : 1;
 
     return {
-      url,
-      title,
-      statusCode: res.status,
+      url, title, statusCode: res.status,
       contentType: ct.split(';')[0].trim(),
-      wordCount,
-      aeoSignal: score,
-      signals,
-      excerpt,
-      contentHash,
-      changed: true,
-      type,
-      text,
+      wordCount, aeoSignal: score, signals, excerpt, contentHash, changed: true, type, text,
       classification: {
-        priority,
-        action: score >= 7 ? 'optimize' : 'build',
-        type,
-        trustSignal: score >= 7 ? 1 : 0,
-        commercialIntent: ci,
-        aiRelevance: aiRel,
+        priority, action: score >= 7 ? 'optimize' : 'build', type,
+        trustSignal: score >= 7 ? 1 : 0, commercialIntent: ci, aiRelevance: aiRel,
         reasons: signals,
       },
     };
@@ -335,43 +339,34 @@ async function fetchPage(url: string, timeoutMs = 8000): Promise<CrawledPage | n
 // ── MAIN: Parallel crawl ─────────────────────────────────────────────
 
 export async function crawlSite(options: CrawlOptions): Promise<CrawledPage[]> {
-  const {
-    startUrl,
-    domain,
-    maxPages,
-    timeoutMs,
-    batchSize = 25,
-    maxBatches = 50,
-  } = options;
-
-  const deadline = Date.now() + timeoutMs;
+  const { startUrl, domain, maxPages, timeoutMs, batchSize = 25, maxBatches = 50 } = options;
   const normDomain = domain.replace(/^www\./, '');
 
-  // ── Step 1: Discover all URLs ──────────────────────────────────────
+  // Step 1: Sitemap discovery — owns its own 45s budget, does NOT eat into crawl time
   console.log(`[crawler] Discovering URLs for ${domain}…`);
-  let allUrls = await discoverSitemap(
-    normDomain,
-    Math.min(timeoutMs * 0.15, 15000)
-  );
+  let allUrls = await discoverSitemap(normDomain);
   console.log(`[crawler] Sitemap: ${allUrls.length} URLs`);
 
-  // Fallback to BFS if sitemap empty
-  if (allUrls.length < 10) {
-    console.log(`[crawler] Sitemap thin — BFS from ${startUrl}…`);
-    allUrls = await bfsDiscover(
-      startUrl,
-      domain,
+  // FIX: threshold raised from <10 to <30. Sitemaps returning 5-25 URLs are valid small sites.
+  if (allUrls.length < 30) {
+    console.log(`[crawler] Sitemap thin (${allUrls.length}) — augmenting with BFS from ${startUrl}…`);
+    const bfsUrls = await bfsDiscover(
+      startUrl, domain,
       Math.min(maxPages * 2, 2000),
-      Math.min(timeoutMs * 0.25, 30000)
+      Math.min(timeoutMs * 0.3, 45000)
     );
-    console.log(`[crawler] BFS found ${allUrls.length} URLs`);
+    console.log(`[crawler] BFS found ${bfsUrls.length} URLs`);
+    const merged = new Set([...allUrls, ...bfsUrls]);
+    allUrls = [...merged];
   }
 
-  // ── Step 2: Filter + dedupe + priority sort ────────────────────────
+  // Crawl deadline starts NOW — after sitemap discovery completes
+  const deadline = Date.now() + timeoutMs;
+
+  // Step 2: Filter + dedupe + priority sort
   const normalize = (u: string): string => {
     try {
-      const p = new URL(u);
-      p.hash = '';
+      const p = new URL(u); p.hash = '';
       const sp = new URLSearchParams(p.search);
       [...sp.keys()].filter(k => k.startsWith('utm')).forEach(k => sp.delete(k));
       p.search = sp.toString();
@@ -389,49 +384,38 @@ export async function crawlSite(options: CrawlOptions): Promise<CrawledPage[]> {
   const isContent = (u: string): boolean =>
     !/\.(pdf|jpg|jpeg|png|gif|svg|css|js|ico|xml|json|zip|mp4|mp3|woff|woff2|ttf)(\?|$)/i.test(u);
 
-  const deduped = [...new Set(allUrls.map(normalize))]
-    .filter(u => inDomain(u) && isContent(u));
-
-  // Sort highest priority first
+  const deduped = [...new Set(allUrls.map(normalize))].filter(u => inDomain(u) && isContent(u));
   deduped.sort((a, b) => priorityScore(b) - priorityScore(a));
 
-  // Cap at maxPages — always include start URL
-  if (!deduped.includes(normalize(startUrl))) {
-    deduped.unshift(normalize(startUrl));
-  }
+  if (!deduped.includes(normalize(startUrl))) deduped.unshift(normalize(startUrl));
   const urlsToFetch = deduped.slice(0, maxPages);
 
-  console.log(`[crawler] Fetching ${urlsToFetch.length} URLs in parallel (batch=${batchSize}, maxConcurrentBatches=${maxBatches})…`);
+  console.log(`[crawler] Fetching ${urlsToFetch.length}/${deduped.length} URLs (batch=${batchSize})…`);
 
-  // ── Step 3: Chunk into batches ─────────────────────────────────────
+  // Step 3: Chunk into batches
   const chunks: string[][] = [];
   for (let i = 0; i < urlsToFetch.length; i += batchSize) {
     chunks.push(urlsToFetch.slice(i, i + batchSize));
   }
 
-  // ── Step 4: Fire waves of concurrent batches ───────────────────────
+  // Step 4: Fire waves of concurrent batches
   const results: CrawledPage[] = [];
 
   for (let wave = 0; wave < chunks.length; wave += maxBatches) {
     if (Date.now() > deadline) {
-      console.log(`[crawler] Deadline hit — stopping at ${results.length} pages`);
+      console.log(`[crawler] Deadline hit — stopping at ${results.length}/${urlsToFetch.length} pages`);
       break;
     }
-
     const waveBatches = chunks.slice(wave, wave + maxBatches);
     const waveResults = await Promise.all(
-      waveBatches.map(batch =>
-        Promise.all(batch.map(url => fetchPage(url, 8000)))
-      )
+      waveBatches.map(batch => Promise.all(batch.map(url => fetchPage(url, 8000))))
     );
-
     const wavePages = waveResults.flat().filter((p): p is CrawledPage => p !== null);
     results.push(...wavePages);
-
-    console.log(`[crawler] Wave ${Math.floor(wave / maxBatches) + 1}/${Math.ceil(chunks.length / maxBatches)}: ${results.length} pages total`);
+    console.log(`[crawler] Wave ${Math.floor(wave / maxBatches) + 1}/${Math.ceil(chunks.length / maxBatches)}: ${results.length} pages`);
   }
 
-  const elapsed = Math.round((Date.now() - (deadline - timeoutMs)) / 1000);
-  console.log(`[crawler] Done: ${results.length} pages in ${elapsed}s`);
+  const confidence = results.length >= 75 ? 'high' : results.length >= 30 ? 'medium' : results.length >= 10 ? 'low' : 'insufficient';
+  console.log(`[crawler] Done: ${results.length} pages — confidence: ${confidence}`);
   return results;
 }
