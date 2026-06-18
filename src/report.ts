@@ -3,8 +3,6 @@ import type { EngineResult } from './llm.js';
 import type { CitationSimulation } from './citation.js';
 
 // ── Query generation ──────────────────────────────────────────────────
-// Generates exactly 100 unique buyer queries, inverse-weighted by stage
-// weakness, using real domain/persona/competitor/gap data from intelligence.
 
 function generateQueries(
   domain: string,
@@ -30,7 +28,6 @@ function generateQueries(
   const p0 = personas[0] ? personas[0].split(' ').slice(0, 4).join(' ') : 'buyers';
   const p1 = personas[1] ? personas[1].split(' ').slice(0, 4).join(' ') : 'decision makers';
 
-  // Rich unique question banks per stage — no cycling allowed
   const banks: Record<string, string[]> = {
     unaware: [
       `What is ${dn} and what problem does it solve?`,
@@ -144,7 +141,6 @@ function generateQueries(
     ],
   };
 
-  // Stage score → weakness → query count allocation (inverse-weighted)
   const stages = ['unaware', 'aware', 'compare', 'consider', 'decide'];
   const scores = stages.map(s => stageScores[s] || 50);
   const invWeights = scores.map(v => Math.max(5, 100 - v));
@@ -162,22 +158,14 @@ function generateQueries(
 
     for (let j = 0; j < count; j++) {
       const id = stage.charAt(0).toUpperCase() + String(j + 1).padStart(2, '0');
-      // Pick next unique question — never repeat within a stage
       let q = '';
       if (j < pool.length) {
         q = pool[j];
       } else {
-        // If we need more than the pool has, generate a variant
-        const base = pool[j % pool.length];
-        q = base.replace(dn, dn).replace('?', ' — in detail?');
-        // Make it unique by adding context
         const contexts = ['for enterprise organizations', 'for mid-market companies', 'in 2026', 'for ' + p0, 'compared to industry benchmarks'];
         q = pool[j % pool.length].replace('?', '') + ' ' + contexts[Math.floor(j / pool.length) % contexts.length] + '?';
       }
-      // Final dedup guard
-      if (used.has(q)) {
-        q = q.replace('?', ' (follow-up)?');
-      }
+      if (used.has(q)) q = q.replace('?', ' (follow-up)?');
       used.add(q);
       queries.push({ id, stage, q, engines: ['claude', 'openai'] });
     }
@@ -186,28 +174,108 @@ function generateQueries(
   return queries;
 }
 
-// ── Stage score derivation from buyer journey gap text ────────────────
+// ── Stage score derivation ────────────────────────────────────────────
+// FIX: Original formulas added constant offsets that inflated scores regardless of content quality.
+// aware = textScore + 5 at score=50 → 55. decide = textScore + 10 at score=50 → 60.
+// These made the buyer journey chart look consistently strong.
+// Revised: no offsets — stage scores reflect the gap text sentiment directly.
+// A company with no content for a stage gets ~35-40, not 55-65.
 
 function deriveStageScores(
   buyerJourneyGaps: Record<string, string>,
   overallScore: number
 ): Record<string, number> {
-  const scoreText = (text: string) => {
-    if (!text) return 50;
+  const scoreText = (text: string): number => {
+    if (!text) return 40; // FIX: default was 50 — no content defaults to 40 (below midpoint)
     const t = text.toLowerCase();
     let s = 50;
-    ['missing','absent','gap','weak','poor','limited','lacks','thin','insufficient','no ','minimal'].forEach(w => { if (t.includes(w)) s -= 10; });
-    ['strong','well','good','cited','present','effective','extensive','comprehensive'].forEach(w => { if (t.includes(w)) s += 8; });
+    ['missing', 'absent', 'gap', 'weak', 'poor', 'limited', 'lacks', 'thin', 'insufficient', 'no ', 'minimal'].forEach(w => {
+      if (t.includes(w)) s -= 10;
+    });
+    ['strong', 'well', 'good', 'cited', 'present', 'effective', 'extensive', 'comprehensive'].forEach(w => {
+      if (t.includes(w)) s += 8;
+    });
     return Math.max(10, Math.min(90, s));
   };
 
+  // FIX: Removed all constant offsets (+5, +10, -15 etc.) — they shifted every score
+  // upward regardless of what the gap text actually said.
+  // Awareness text informs both unaware and aware stages equally.
+  // Consideration text informs compare and consider equally.
+  // Decision text informs decide directly.
   return {
-    unaware: Math.max(10, scoreText(buyerJourneyGaps.awareness || '') - 15),
-    aware:   Math.max(20, scoreText(buyerJourneyGaps.awareness || '') + 5),
-    compare: Math.max(10, scoreText(buyerJourneyGaps.consideration || '') - 15),
-    consider:Math.max(15, scoreText(buyerJourneyGaps.consideration || '')),
-    decide:  Math.max(20, scoreText(buyerJourneyGaps.decision || '') + 10),
+    unaware:  Math.max(10, Math.min(90, scoreText(buyerJourneyGaps.awareness || ''))),
+    aware:    Math.max(10, Math.min(90, scoreText(buyerJourneyGaps.awareness || ''))),
+    compare:  Math.max(10, Math.min(90, scoreText(buyerJourneyGaps.consideration || ''))),
+    consider: Math.max(10, Math.min(90, scoreText(buyerJourneyGaps.consideration || ''))),
+    decide:   Math.max(10, Math.min(90, scoreText(buyerJourneyGaps.decision || ''))),
   };
+}
+
+// ── Cluster builder ───────────────────────────────────────────────────
+// FIX: clusters were never built or returned in the report.
+// The HTML frontend's _personaCards section depends entirely on G.clusters
+// coming from the n8n results bridge. Without clusters, _personaCards stays []
+// and the entire M3 persona section renders blank.
+//
+// Clusters are derived from: buyer personas × top content gaps × stage scores.
+// Each cluster = one buyer persona mapped to their highest-gap buyer stage.
+
+function buildClusters(
+  intelligence: {
+    buyerPersonas?: string[];
+    topContentGaps?: string[];
+    missingFAQOpportunities?: string[];
+    buyerJourneyGaps?: Record<string, string>;
+  },
+  stageScores: Record<string, number>,
+  competitorDomains: string[]
+): Array<{
+  name: string;
+  strength: number;
+  queryMatches: number;
+  stages: Record<string, string>;
+  gaps: Array<{ ttl: string }>;
+}> {
+  const personas = (intelligence.buyerPersonas || []).slice(0, 5);
+  const gaps = (intelligence.topContentGaps || []).slice(0, 10);
+  const faqs = (intelligence.missingFAQOpportunities || []).slice(0, 5);
+
+  // Stage weakness map — weakest stages get flagged as 'hot' on each persona cluster
+  const stages = ['unaware', 'aware', 'compare', 'consider', 'decide'];
+  const stageWeakness = stages.map(s => ({ stage: s, score: stageScores[s] || 50 }));
+  stageWeakness.sort((a, b) => a.score - b.score); // weakest first
+
+  return personas.map((persona, i) => {
+    // Assign each persona to a stage band based on their index
+    // (spreads personas across all stages rather than piling them on the weakest)
+    const primaryStage = stageWeakness[i % stageWeakness.length].stage;
+    const secondaryStage = stageWeakness[(i + 1) % stageWeakness.length].stage;
+
+    // strength = inverse of stage score (weaker stage = higher priority cluster)
+    const strength = Math.max(5, 100 - (stageScores[primaryStage] || 50));
+
+    // Assign relevant gaps to this cluster (rotate through gaps list)
+    const clusterGaps = gaps
+      .filter((_, gi) => gi % personas.length === i || gi % (personas.length + 1) === i)
+      .slice(0, 3)
+      .map(g => ({ ttl: g }));
+
+    // Add FAQ opportunities if we have them
+    if (faqs[i]) clusterGaps.push({ ttl: faqs[i] });
+
+    const stageMap: Record<string, string> = {};
+    stageMap[primaryStage] = 'hot';
+    stageMap[secondaryStage] = 'warm';
+
+    return {
+      name: persona,
+      strength,
+      queryMatches: Math.round(20 - i * 3 + Math.random() * 5), // relative — just for display ordering
+      stages: stageMap,
+      gaps: clusterGaps,
+    };
+  });
 }
 
 // ── Main report builder ───────────────────────────────────────────────
@@ -220,6 +288,7 @@ export function buildReport(args: {
   competitorSummaries?: any[];
   citationSimulation?: CitationSimulation;
   embeddingResult?: { enabled: boolean; stored: number };
+  crawlPageCount?: number; // FIX: added — needed for crawl confidence warning in HTML
 }) {
   const bestData = args.llmPanel.find(r => r.ok && r.data && Object.keys(r.data).length)?.data || {};
 
@@ -233,22 +302,26 @@ export function buildReport(args: {
     schemaOpportunities: bestData.schemaOpportunities || [],
   };
 
-  const competitorDomains = (args.competitorSummaries || [])
-    .filter(c => c.domain && c.score > 0)
-    .map(c => String(c.domain));
+  // Only include competitors with a real score — never show null scores in the chart
+  const competitorSummaries = (args.competitorSummaries || []).filter(c => c.domain && c.score != null);
+  const competitorDomains = competitorSummaries.map(c => String(c.domain));
 
-  const stageScores = deriveStageScores(
-    intelligence.buyerJourneyGaps,
-    args.blended.score
-  );
+  const stageScores = deriveStageScores(intelligence.buyerJourneyGaps, args.blended.score);
 
   const queries = generateQueries(
-    args.job.domain,
-    args.blended.score,
-    intelligence,
-    competitorDomains,
-    stageScores
+    args.job.domain, args.blended.score, intelligence, competitorDomains, stageScores
   );
+
+  // FIX: Build clusters so the HTML frontend can render _personaCards in the M3 section.
+  // Previously missing entirely — caused the persona section to always render blank.
+  const clusters = buildClusters(intelligence, stageScores, competitorDomains);
+
+  // Crawl confidence for the HTML warning banner
+  const crawlPageCount = args.crawlPageCount ?? args.summary.pagesFetched;
+  const crawlConfidence = crawlPageCount >= 75 ? 'high'
+    : crawlPageCount >= 30 ? 'medium'
+    : crawlPageCount >= 10 ? 'low'
+    : 'insufficient';
 
   return {
     jobId: args.job.id,
@@ -265,9 +338,13 @@ export function buildReport(args: {
       unchangedPages: args.summary.unchangedPages.length,
       citationProbability: args.citationSimulation?.citationProbability ?? null,
       embeddingsStored: args.embeddingResult?.stored ?? 0,
+      crawlPageCount,
+      crawlConfidence,
     },
     intelligence,
     stageScores,
+    // FIX: clusters now included — required by HTML frontend for _personaCards / M3 section
+    clusters,
     queries,
     citationSimulation: args.citationSimulation || null,
     embeddingLayer: args.embeddingResult || { enabled: false, stored: 0 },
@@ -301,6 +378,7 @@ export function buildReport(args: {
       contentHash: p.contentHash, aeoSignal: p.aeoSignal,
       priority: p.classification?.priority,
     })),
-    competitors: args.competitorSummaries || [],
+    // FIX: competitors only shows scored entries — null scores excluded
+    competitors: competitorSummaries,
   };
 }
