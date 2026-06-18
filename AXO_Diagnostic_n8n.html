@@ -2358,37 +2358,8 @@ function startDiagnostic() {
     setStep(5, 'done');
     $('progStatus').textContent = 'Complete!';
     setTimeout(() => showReport(data), 400);
-    // After report renders, fetch narrative asynchronously from WF5
-    // jobId comes from the outer runCrawl scope — always available regardless of g-report fields
-    const narrativeJobId = (data && data._jobId) || window._axoCurrentJobId;
-    if (narrativeJobId) {
-      const base = AXO_CONFIG.n8nBase;
-      if (window.axoLog) axoLog('Fetching narrative for ' + narrativeJobId + '…', 'info');
-      // Poll for narrative — WF4 pre-generates it async, so retry until ready
-      let narrativeAttempts = 0;
-      const fetchNarrative = async () => {
-        narrativeAttempts++;
-        try {
-          const nr = await fetch(base + '/tpg-crawl-narrative?jobId=' + narrativeJobId);
-          if (!nr.ok) throw new Error('Narrative HTTP ' + nr.status);
-          const nd = await nr.json();
-          if (nd.narrative && Object.keys(nd.narrative).length > 0) {
-            G._narrative = nd.narrative;
-            renderNarrative();
-            if (window.axoLog) axoLog('✓ Narrative loaded (' + Object.keys(nd.narrative).length + ' sections)', 'ok');
-          } else if (narrativeAttempts < 6) {
-            // Not ready yet — retry in 5s (WF4 fires it async, takes ~20s total)
-            if (window.axoLog) axoLog('Narrative generating… retry ' + narrativeAttempts + '/6', 'info');
-            setTimeout(fetchNarrative, 5000);
-          } else {
-            if (window.axoLog) axoLog('Narrative not available after retries', 'info');
-          }
-        } catch(e) {
-          if (window.axoLog) axoLog('Narrative error: ' + e.message, 'info');
-        }
-      };
-      setTimeout(fetchNarrative, 2000);
-    }
+    // Narrative is now built inline in the results bridge (Build G-Report node)
+    // and arrives as G._narrative in the same response. No separate fetch needed.
   })
   .catch(err => {
     console.error('[AXO] Pipeline failed:', err.name, err.message, err);
