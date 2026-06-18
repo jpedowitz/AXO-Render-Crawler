@@ -14,9 +14,6 @@ import { event, updateJob } from '../api/jobService.js';
 requireConfig();
 
 // ── Competitor discovery via Claude ───────────────────────────────────
-// Called after LLM panel completes. Uses Claude to identify real industry
-// competitors based on the domain, buyer personas, and site summary.
-// No static lists, no fallbacks — always live from Claude.
 
 async function findCompetitors(
   domain: string,
@@ -71,8 +68,6 @@ Return ONLY a valid JSON array with exactly this shape, nothing else:
 
     const data = await response.json() as any;
     const text = (data.content?.[0]?.text || '[]').replace(/```json|```/g, '').trim();
-
-    // Extract JSON array even if Claude adds preamble
     const match = text.match(/\[[\s\S]*\]/);
     if (!match) return [];
 
@@ -92,6 +87,57 @@ Return ONLY a valid JSON array with exactly this shape, nothing else:
     console.warn(`[findCompetitors] failed: ${err?.message}`);
     return [];
   }
+}
+
+// ── Score a single competitor site ────────────────────────────────────
+// FIX: Competitors now use runLLMPanel (single Claude call) instead of
+// deterministicScore(). This makes competitor scores directly comparable
+// to the subject site score — same method, same prompt structure.
+// deterministicScore() is kept as a hard fallback if the LLM call fails.
+//
+// FIX: Per-competitor timeout raised from 45s to 150s (2.5 min).
+// 45s was not enough for any site with a real sitemap index:
+// - Sitemap discovery alone can take 20-30s on large sites
+// - Leaving only 15-25s for actual page fetching = 1-5 pages
+// The sitemap discovery in crawler.ts now has its own 45s budget
+// so the 150s budget here covers sitemap(45s) + crawl(105s).
+
+async function scoreCompetitorSite(
+  compDomain: string,
+  competitorLimit: number
+): Promise<{ score: number; pagesFetched: number; avgAeoSignal: number; method: string }> {
+
+  const compPages = await crawlSite({
+    startUrl: `https://${compDomain}`,
+    domain: compDomain,
+    maxPages: competitorLimit,
+    depth: 3,
+    includeSubdomains: false,
+    timeoutMs: config.crawlTimeoutMs,  // same timeout as subject — comparable crawl depth
+    concurrency: Math.min(config.crawlConcurrency, 15),
+    perHostConcurrency: config.crawlPerHostConcurrency,
+  });
+
+  const compSummary = reducePages(compPages);
+
+  // Attempt LLM scoring for parity with subject site method
+  let score: number;
+  let method: string;
+
+  try {
+    const compPrompt = buildCompactPrompt(compDomain, compSummary);
+    const compPanel = await runLLMPanel(compPrompt);
+    const compBlended = blendScores(compSummary, compPanel);
+    score = compBlended.score;
+    method = 'llm';
+  } catch (llmErr: any) {
+    // Hard fallback to deterministic if LLM fails — log clearly
+    console.warn(`[competitor] LLM scoring failed for ${compDomain}, using deterministicScore: ${llmErr?.message}`);
+    score = deterministicScore(compSummary);
+    method = 'deterministic';
+  }
+
+  return { score, pagesFetched: compSummary.pagesFetched, avgAeoSignal: compSummary.avgAeoSignal, method };
 }
 
 // ── Page cache annotation ─────────────────────────────────────────────
@@ -145,19 +191,10 @@ async function bulkUpsertPages(jobId: string, pages: CrawledPage[]) {
     const placeholders = batch.map((p, i) => {
       const base = i * 13;
       values.push(
-        jobId,
-        p.url,
-        p.title,
-        p.statusCode,
-        p.contentType,
-        p.wordCount,
-        p.aeoSignal,
-        JSON.stringify(p.signals),
-        p.excerpt,
+        jobId, p.url, p.title, p.statusCode, p.contentType, p.wordCount, p.aeoSignal,
+        JSON.stringify(p.signals), p.excerpt,
         JSON.stringify({ priority: p.classification?.priority, action: p.classification?.action, changed: p.changed }),
-        p.contentHash,
-        p.changed ?? null,
-        JSON.stringify(p.classification || {})
+        p.contentHash, p.changed ?? null, JSON.stringify(p.classification || {})
       );
       return `($${base + 1},$${base + 2},$${base + 3},$${base + 4},$${base + 5},$${base + 6},$${base + 7},$${base + 8},$${base + 9},$${base + 10},$${base + 11},$${base + 12},$${base + 13})`;
     }).join(',');
@@ -166,17 +203,10 @@ async function bulkUpsertPages(jobId: string, pages: CrawledPage[]) {
       `insert into axo_pages (job_id, url, title, status_code, content_type, word_count, aeo_signal, signals, excerpt, raw, content_hash, changed, classification)
        values ${placeholders}
        on conflict (job_id, url) do update set
-         title = excluded.title,
-         status_code = excluded.status_code,
-         content_type = excluded.content_type,
-         word_count = excluded.word_count,
-         aeo_signal = excluded.aeo_signal,
-         signals = excluded.signals,
-         excerpt = excluded.excerpt,
-         raw = excluded.raw,
-         content_hash = excluded.content_hash,
-         changed = excluded.changed,
-         classification = excluded.classification`,
+         title = excluded.title, status_code = excluded.status_code, content_type = excluded.content_type,
+         word_count = excluded.word_count, aeo_signal = excluded.aeo_signal, signals = excluded.signals,
+         excerpt = excluded.excerpt, raw = excluded.raw, content_hash = excluded.content_hash,
+         changed = excluded.changed, classification = excluded.classification`,
       values
     );
   }
@@ -219,7 +249,8 @@ async function runDiagnostic(jobId: string) {
        semantic_completeness=excluded.semantic_completeness,
        simulation=excluded.simulation,
        created_at=now()`,
-    [jobId, citationSimulation.citationProbability, citationSimulation.answerabilityScore, citationSimulation.trustScore, citationSimulation.semanticCompleteness, JSON.stringify(citationSimulation)]
+    [jobId, citationSimulation.citationProbability, citationSimulation.answerabilityScore,
+     citationSimulation.trustScore, citationSimulation.semanticCompleteness, JSON.stringify(citationSimulation)]
   );
 
   const embeddingResult = await maybeStorePageEmbeddings(jobId, pages);
@@ -238,17 +269,12 @@ async function runDiagnostic(jobId: string) {
   const llmPanel = await runLLMPanel(prompt);
   const blended = blendScores(summary, llmPanel);
 
-  // ── Phase 3: Competitor discovery (Claude) + crawl ────────────────
-  // User-specified competitors take priority. If none provided, ask Claude
-  // to identify real industry competitors based on personas and site context.
+  // ── Phase 3: Competitor discovery ────────────────────────────────
   const userSpecifiedCompetitors: string[] = Array.isArray(job.competitors) ? job.competitors : [];
-
   let competitorDomains = userSpecifiedCompetitors;
 
   if (competitorDomains.length === 0) {
     await updateJob(jobId, { stage: 'competitor_discovery' });
-    // Intelligence lives in each EngineResult's .data field — use Claude's result first,
-    // fall back to any successful engine's data
     const claudeResult = llmPanel.find(r => r.engine === 'claude' && r.ok && r.data);
     const anyResult = llmPanel.find(r => r.ok && r.data);
     const intelligence = claudeResult?.data || anyResult?.data || {};
@@ -261,82 +287,100 @@ async function runDiagnostic(jobId: string) {
 
     const discovered = await findCompetitors(job.domain, personas, siteSummary);
     competitorDomains = discovered.map(c => c.domain);
-    console.log(`[worker] Claude identified ${competitorDomains.length} competitors for ${job.domain}: ${competitorDomains.join(', ')}`);
+    console.log(`[worker] Found ${competitorDomains.length} competitors for ${job.domain}: ${competitorDomains.join(', ')}`);
   }
 
   // ── Phase 4: Competitor crawl + scoring ───────────────────────────
+  // FIX: Competitors now crawled with same method as subject (LLM scoring via runLLMPanel).
+  // FIX: Timeout raised from 45s to 150s per competitor — 45s wasn't enough for sitemap discovery alone.
+  // FIX: Competitors run sequentially in pairs (not full Promise.all) to avoid Render memory spikes
+  //      when crawling 5 sites simultaneously at 15 concurrent connections each.
+  // FIX: crawlConfidence logged and stored per competitor for report quality warnings.
+
+  const COMPETITOR_TIMEOUT_MS = 150000; // 2.5 min per competitor
   let competitorSummaries: any[] = [];
 
   if (competitorDomains.length > 0) {
     await updateJob(jobId, { stage: 'competitor_scoring' });
-    competitorSummaries = await Promise.all(
-      competitorDomains.slice(0, 5).map(async (compDomain: string) => {
-        try {
+    console.log(`[worker] Scoring ${competitorDomains.length} competitors (${COMPETITOR_TIMEOUT_MS / 1000}s each)…`);
+
+    // Run in pairs to balance speed vs memory
+    for (let i = 0; i < Math.min(competitorDomains.length, 5); i += 2) {
+      const pair = competitorDomains.slice(i, i + 2);
+      const pairResults = await Promise.allSettled(
+        pair.map(async (compDomain: string) => {
           await query(
             `insert into axo_competitors (job_id, domain, status) values ($1,$2,'running')
              on conflict (job_id, domain) do update set status='running'`,
             [jobId, compDomain]
           );
 
-          const compPages = await Promise.race([
-            crawlSite({
-              startUrl: `https://${compDomain}`,
+          try {
+            const result = await Promise.race([
+              scoreCompetitorSite(compDomain, job.competitor_limit),
+              new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error(`Competitor timeout: ${compDomain}`)), COMPETITOR_TIMEOUT_MS)
+              ),
+            ]);
+
+            const crawlConfidence = result.pagesFetched >= 75 ? 'high'
+              : result.pagesFetched >= 30 ? 'medium'
+              : result.pagesFetched >= 10 ? 'low'
+              : 'insufficient';
+
+            await query(
+              `update axo_competitors set status='complete', pages_fetched=$3, score=$4, completed_at=now()
+               where job_id=$1 and domain=$2`,
+              [jobId, compDomain, result.pagesFetched, result.score]
+            );
+
+            console.log(`[competitor] ${compDomain}: score=${result.score}, pages=${result.pagesFetched}, method=${result.method}, confidence=${crawlConfidence}`);
+            return {
               domain: compDomain,
-              maxPages: job.competitor_limit,
-              depth: 3,
-              includeSubdomains: false,
-              timeoutMs: config.crawlTimeoutMs,
-              concurrency: Math.min(config.crawlConcurrency, 15),
-              perHostConcurrency: config.crawlPerHostConcurrency,
-            }),
-            new Promise<never>((_, reject) =>
-              setTimeout(() => reject(new Error(`Competitor crawl timeout: ${compDomain}`)), 45000)
-            ),
-          ]);
+              score: result.score,
+              pagesFetched: result.pagesFetched,
+              avgAeoSignal: result.avgAeoSignal,
+              scoringMethod: result.method,
+              crawlConfidence,
+            };
+          } catch (err: any) {
+            console.warn(`[competitor] ${compDomain} failed: ${err?.message}`);
+            await query(
+              `update axo_competitors set status='failed', completed_at=now() where job_id=$1 and domain=$2`,
+              [jobId, compDomain]
+            );
+            return { domain: compDomain, score: null, pagesFetched: 0, avgAeoSignal: 0, error: err?.message, crawlConfidence: 'failed' };
+          }
+        })
+      );
 
-          await annotatePageChangesAndUpdateCache(compDomain, compPages);
-          const compSummary = reducePages(compPages);
-          const compScore = deterministicScore(compSummary);
-
-          await query(
-            `update axo_competitors set status='complete', pages_fetched=$3, summary=$4, score=$5, completed_at=now()
-             where job_id=$1 and domain=$2`,
-            [jobId, compDomain, compSummary.pagesFetched, JSON.stringify(compSummary), compScore]
-          );
-
-          return { domain: compDomain, score: compScore, pagesFetched: compSummary.pagesFetched, avgAeoSignal: compSummary.avgAeoSignal };
-        } catch (err: any) {
-          console.log(`[competitor] ${compDomain} failed: ${err?.message}`);
-          await query(
-            `update axo_competitors set status='failed', completed_at=now() where job_id=$1 and domain=$2`,
-            [jobId, compDomain]
-          );
-          return { domain: compDomain, score: 0, pagesFetched: 0, avgAeoSignal: 0, error: err?.message };
-        }
-      })
-    );
+      for (const r of pairResults) {
+        if (r.status === 'fulfilled') competitorSummaries.push(r.value);
+        else competitorSummaries.push({ domain: 'unknown', score: null, error: r.reason?.message });
+      }
+    }
   }
 
   // ── Phase 5: Build and store report ──────────────────────────────
   await updateJob(jobId, { stage: 'reporting' });
-  const report = buildReport({ job, summary, llmPanel, blended, competitorSummaries, citationSimulation, embeddingResult });
+  const report = buildReport({
+    job, summary, llmPanel, blended, competitorSummaries, citationSimulation, embeddingResult,
+    // Pass crawl depth so report and HTML can show confidence warning
+    crawlPageCount: pages.length,
+  });
 
   await query(
     `insert into axo_results (job_id, score, scores_by_engine, engines_used, report)
      values ($1,$2,$3,$4,$5)
      on conflict (job_id) do update set
-       score=excluded.score,
-       scores_by_engine=excluded.scores_by_engine,
-       engines_used=excluded.engines_used,
-       report=excluded.report,
-       generated_at=now()`,
+       score=excluded.score, scores_by_engine=excluded.scores_by_engine,
+       engines_used=excluded.engines_used, report=excluded.report, generated_at=now()`,
     [jobId, blended.score, JSON.stringify(blended.byEngine), JSON.stringify(blended.enginesUsed), JSON.stringify(report)]
   );
 
   await updateJob(jobId, { status: 'complete', stage: 'complete', completedAt: new Date() });
   await event(jobId, 'report.completed', { score: blended.score, enginesUsed: blended.enginesUsed });
 
-  // Notify n8n if webhook configured
   if (config.n8nWebhookUrl) {
     await fetch(config.n8nWebhookUrl, {
       method: 'POST',
@@ -360,7 +404,5 @@ new Worker('axo-diagnostic', async bullJob => {
     throw err;
   }
 }, { connection: redis, concurrency: config.jobConcurrency });
-
-console.log(`[AXO worker] running with concurrency=${config.jobConcurrency}`);
 
 console.log(`[AXO worker] running with concurrency=${config.jobConcurrency}`);
