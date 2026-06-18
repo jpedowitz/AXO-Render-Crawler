@@ -1167,6 +1167,7 @@ img { max-width: 100%; }
 
 <!-- ═══════════════════════ REPORT ═══════════════════════ -->
 <section id="report">
+  <div id="axoCrawlWarning" style="display:none;background:#7a2d00;color:#fff;font-size:13px;padding:12px 24px;text-align:center;position:sticky;top:0;z-index:200;line-height:1.5;"></div>
 
   <!-- UTILITY BAR -->
   <div class="util">
@@ -1257,7 +1258,7 @@ img { max-width: 100%; }
     <!-- ══════ CHAPTER 01 · VOCABULARY ══════ -->
     <section class="chapter" id="c-m1">
       <div class="chap__mark">Chapter 01 · Problem vocabulary</div>
-      <h1 class="chap__h" id="ch1Title">Your site speaks your language. Not your buyer's.</h1>
+      <h1 class="chap__h">Your site speaks your language. Not your buyer's.</h1>
       <p class="chap__lede">AI systems match buyer questions to content using vocabulary overlap. Of the <strong>six canonical terms</strong> enterprise B2B buyers use to describe your category, you cover three well. The rest live in your competitors' content.</p>
 
       <div class="openstat">
@@ -1301,7 +1302,7 @@ img { max-width: 100%; }
     <section class="chapter" id="c-m2">
       <div class="chap__mark">Chapter 02 · AI presence</div>
       <h1 class="chap__h" id="ch2Title">AI knows you at the start and the end of the buyer journey. Not the middle.</h1>
-      <p class="chap__lede" id="ch2Lede" id="ch1LedeStatic">We tested <strong>100 real buyer questions</strong>, weighted by where your journey is weakest. The presence curve has a distinct shape: strong at Aware, strong at Decide, a cavern at Compare.</p>
+      <p class="chap__lede" id="ch2Lede">We tested <strong>100 real buyer questions</strong>, weighted by where your journey is weakest. The presence curve has a distinct shape: strong at Aware, strong at Decide, a cavern at Compare.</p>
 
       <div class="stage-dist" onclick="document.getElementById('methodology').scrollIntoView({behavior:'smooth',block:'start'})" title="View the full 100-query list">
         <div class="stage-dist__hd">
@@ -1373,7 +1374,7 @@ img { max-width: 100%; }
     <!-- ══════ CHAPTER 04 · LLM ENGINE COVERAGE ══════ -->
     <section class="chapter" id="c-llm">
       <div class="chap__mark">Chapter 04 · LLM engine coverage</div>
-      <h1 class="chap__h" id="ch4Title">Four engines. Four different pictures of you.</h1>
+      <h1 class="chap__h">Four engines. Four different pictures of you.</h1>
       <p class="chap__lede">We ran the same 100 buyer queries through <strong>Claude, ChatGPT, Perplexity, and Gemini</strong>. Each engine has different training data, different freshness signals, different retrieval biases. Your AXO score varies by <strong id="llmSpread">—</strong> points across them. The spread reveals where to invest next.</p>
 
       <!-- Engine summary cards -->
@@ -1435,7 +1436,7 @@ img { max-width: 100%; }
     <!-- ══════ CHAPTER 06 · CONTENT OPPORTUNITIES ══════ -->
     <section class="chapter" id="c-m5">
       <div class="chap__mark">Chapter 06 · Content opportunities</div>
-      <h1 class="chap__h" id="ch6Title">Four pieces. In order. Start this quarter.</h1>
+      <h1 class="chap__h">Four pieces. In order. Start this quarter.</h1>
       <p class="chap__lede">Every recommendation below is earned by a specific query gap from Chapters 01–05. No "publish more content." No content-for-content's-sake. This is the list.</p>
 
       <div style="max-width: 780px;">
@@ -1483,7 +1484,7 @@ img { max-width: 100%; }
     <!-- ══════ CHAPTER 07 · CLUSTERS ══════ -->
     <section class="chapter" id="c-m6">
       <div class="chap__mark">Chapter 07 · Topic clusters</div>
-      <h1 class="chap__h" id="ch7Title">Your pillars are strong. Your flanks are weak.</h1>
+      <h1 class="chap__h">Your pillars are strong. Your flanks are weak.</h1>
       <p class="chap__lede" id="ch7Lede">Topical pillars emerged from the crawl. The strongest clusters are carrying your AEO score. The weaker ones need reinforcement — and they sit directly on high-intent query paths. Your <strong>100-page AXO roadmap</strong> is allocated across clusters by inverse strength: weaker clusters get a larger share. <strong>Expand any cluster</strong> to see its allocation and the top recommended pages.</p>
 
       <!-- 100-page allocation bar -->
@@ -1519,7 +1520,7 @@ img { max-width: 100%; }
 
     <!-- ══════ CHAPTER 08 · COMPETITORS DEEP ══════ -->
     <section class="chapter" id="c-m7">
-      <div class="chap__mark" id="ch8Title">Chapter 08 · Competitor deep analysis</div>
+      <div class="chap__mark">Chapter 08 · Competitor deep analysis</div>
       <h1 class="chap__h">A full crawl of every rival, scored on the same rubric.</h1>
       <p class="chap__lede">Each of the five competitors above was crawled at full depth — between 540 and 8,400 pages — and scored on the same 100 queries. This is the unvarnished comparison.</p></p>
 
@@ -1547,7 +1548,7 @@ img { max-width: 100%; }
     <!-- ══════ CHAPTER 09 · CONVERSION ══════ -->
     <section class="chapter" id="c-m8">
       <div class="chap__mark">Chapter 09 · Conversion & revenue</div>
-      <h1 class="chap__h" id="ch9Title">AI traffic converts 4.4x better than organic. The drop is at the form fill.</h1>
+      <h1 class="chap__h">AI traffic converts 4.4x better than organic. The drop is at the form fill.</h1>
       <p class="chap__lede">AI-referred visitors arrive with context the page doesn't expect. They've already had a conversation with Claude or ChatGPT. They're ready to engage. Your landing pages treat them like cold search traffic.</p>
 
       <div class="openstat">
@@ -1581,7 +1582,7 @@ img { max-width: 100%; }
     <!-- ══════ CHAPTER 10 · RECOMMENDATIONS ══════ -->
     <section class="chapter" id="c-recs">
       <div class="chap__mark">Chapter 10 · What to do next</div>
-      <h1 class="chap__h" id="ch10Title">Ship four things this half. Revisit the AXO in 90 days.</h1>
+      <h1 class="chap__h">Ship four things this half. Revisit the AXO in 90 days.</h1>
       <p class="chap__lede">Each recommendation below is scoped to a named gap, mapped to an owner archetype, and sized in weeks. If you execute the P0s, your AXO projects to <strong>85</strong> within two quarters.</p>
 
       <div class="rec-grid" id="recGrid"></div>
@@ -1651,6 +1652,9 @@ img { max-width: 100%; }
 const AXO_CONFIG = {
   // n8n pipeline base URL
   n8nBase: window.AXO_N8N_BASE || 'https://pedowitzgroup.app.n8n.cloud/webhook',
+  // Render proxy-server base URL — used for /api/competitor-batch (real crawled competitor scores).
+  // Set window.AXO_PROXY_BASE before loading this file to override, or update the default here.
+  proxyBase: window.AXO_PROXY_BASE || 'https://axo-proxy.onrender.com',
   // Client-side LLM keys — REMOVED. All LLM scoring runs server-side via WF4.
   // Set via window.AXO_OPENAI_KEY etc. if client-side scoring is re-enabled.
   openaiKey: window.AXO_OPENAI_KEY || '',
@@ -1827,7 +1831,6 @@ function updateCrawlProgress(pagesProcessed, pagesFound) {
 
 function startDiagnostic() {
   // Read URL from intake input and update G.site
-  window._axoCurrentJobId = null;
   const urlInput = $('urlIn');
   if (urlInput && urlInput.value.trim()) {
     let raw = urlInput.value.trim().toLowerCase()
@@ -2054,24 +2057,47 @@ function startDiagnostic() {
       // Already has a TLD — don't append .com again
       return s.includes('.') ? s : s + '.com';
     };
+    // Competitor scores are NOT inferred — every competitor (including "you") must be crawled.
+    // Set axo: null here so the UI shows "crawling…" placeholders until the batch completes.
+    // runCompetitorBatch replaces these with real crawled scores.
     G.competitors = [
-      ...compMentions.slice(0, 4).map((c, i) => ({
+      ...compMentions.slice(0, 5).map((c) => ({
         name: compDisplayName(c), domain: compDomain(c),
-        axo: Math.min(99, yourScore + 8 + (3 - i) * 4), you: false
+        axo: null, you: false, crawled: false
       })),
       { name: data.domain ? data.domain.split('.')[0].charAt(0).toUpperCase() + data.domain.split('.')[0].slice(1) : 'You',
-        domain: data.domain || G.site, axo: yourScore, you: true },
-      ...compMentions.slice(4).map((c, i) => ({
-        name: compDisplayName(c), domain: compDomain(c),
-        axo: Math.max(10, yourScore - 10 - i * 8), you: false
-      }))
-    ].sort((a, b) => b.axo - a.axo);
-
+        domain: data.domain || G.site, axo: null, you: true, crawled: false }
+    ];
+    // cmpDeep mirrors competitors — no page estimates, all pending
     G.cmpDeep = G.competitors.map(c => ({
       ...c,
-      pages: c.you ? (data.totalPagesCrawled || 50) : Math.round(data.totalPagesCrawled * (0.5 + Math.random())),
-      delta: c.you ? 0 : c.axo - yourScore
+      pages: c.you ? (data.totalPagesCrawled || 0) : 0,
+      delta: null
     }));
+
+    // Build _personaCards from clusters — drives M3 persona section rendering.
+    // Each cluster maps to one persona card: strongest cluster first (highest score = cited),
+    // weakest last (lowest score = routed to competitors). Without this, personaCards stays []
+    // and the entire M3 section renders blank.
+    if (G.clusters && G.clusters.length) {
+      const sorted = G.clusters.slice().sort((a, b) => (b.strength || 0) - (a.strength || 0));
+      G._personaCards = sorted.map((cl, i) => {
+        const stagesArr = Object.keys(cl.stages || {});
+        const hotStage = stagesArr.find(k => (cl.stages || {})[k] === 'hot') || stagesArr[0] || 'aware';
+        const stageLabel = { unaware: 'Unaware', aware: 'Problem-aware', compare: 'Comparing solutions', consider: 'Considering vendors', decide: 'Decision-ready' }[hotStage] || hotStage;
+        const topGapTitle = (cl.gaps && cl.gaps[0] && cl.gaps[0].ttl) ? cl.gaps[0].ttl : null;
+        const question = topGapTitle
+          ? topGapTitle.replace(/^\"|\"$/g, '').substring(0, 100)
+          : 'What is the best solution for ' + (cl.name || 'this problem') + '?';
+        return {
+          name: cl.name || ('Persona ' + (i + 1)),
+          context: stageLabel + ' · ' + (cl.queryMatches || 0) + ' matched queries',
+          question: question,
+          score: cl.strength || 0,
+          cited: i === 0
+        };
+      });
+    }
 
     // 4. funnel — estimated from AEO score
     G.funnel = [
@@ -2087,10 +2113,10 @@ function startDiagnostic() {
     G.queries = [];
     const stageScoreMap = {
       unaware:  G._stagePcts ? G._stagePcts.unaware  : Math.round(score * 0.55),
-      aware:    G._stagePcts ? G._stagePcts.aware    : Math.min(95, Math.round(score * 1.1 + 25)),
+      aware:    G._stagePcts ? G._stagePcts.aware    : Math.min(75, Math.round(score * 0.75 + 10)),
       compare:  G._stagePcts ? G._stagePcts.compare  : Math.max(15, Math.round(score * 0.7 + 5)),
-      consider: G._stagePcts ? G._stagePcts.consider : Math.min(90, Math.round(score * 0.9 + 20)),
-      decide:   G._stagePcts ? G._stagePcts.decide   : Math.min(95, Math.round(score * 0.8 + 35))
+      consider: G._stagePcts ? G._stagePcts.consider : Math.min(80, Math.round(score * 0.8 + 10)),
+      decide:   G._stagePcts ? G._stagePcts.decide   : Math.min(85, Math.round(score * 0.8 + 20))
     };
     const stageOrder = ['unaware','aware','compare','consider','decide'];
     const invWeights = stageOrder.map(s => Math.max(5, 100 - (stageScoreMap[s] || 50)));
@@ -2223,25 +2249,80 @@ function startDiagnostic() {
         const userDoms  = savedCompetitorsInput.map(_norm);
         // Merge: user-specified first, then any server competitors not already in user list
         const serverComps = (G.competitors || []).filter(c => !userDoms.includes(_norm(c.domain || c.name || '')));
+        // Do not fabricate scores — all competitors (including subject) get real crawl scores.
+        // axo: null triggers "crawling…" placeholder in renderCompetitors.
         G.competitors = [
-          ...savedCompetitorsInput.map((c, i) => ({
+          ...savedCompetitorsInput.map((c) => ({
             name: _name(c), domain: _dom(c),
-            axo: Math.min(99, yourScore + 8 + (savedCompetitorsInput.length - 1 - i) * 4), you: false
+            axo: null, you: false, crawled: false
           })),
-          ...serverComps.slice(0, Math.max(0, 4 - savedCompetitorsInput.length)),
-          { name: deriveCompanyName(G.site), domain: G.site, axo: yourScore, you: true }
-        ].sort((a, b) => b.axo - a.axo);
+          ...serverComps.slice(0, Math.max(0, 5 - savedCompetitorsInput.length)).map(c => ({
+            ...c, axo: null, crawled: false
+          })),
+          { name: deriveCompanyName(G.site), domain: G.site, axo: null, you: true, crawled: false }
+        ];
         if (window.axoLog) axoLog('Competitors rebuilt from user input: ' + savedCompetitorsInput.join(', '), 'ok');
       }
       if (window.axoLog) axoLog('G assigned: ' + (data.clusters||[]).length + ' clusters, site=' + G.site + ', score=' + data._aeoScore, 'ok');
+      // If n8n didn't return _personaCards, build them from clusters.
+      // This is the primary rendering path for M3 — without it personaCards stays empty.
+      if ((!G._personaCards || !G._personaCards.length) && G.clusters && G.clusters.length) {
+        const sorted = G.clusters.slice().sort((a, b) => (b.strength || 0) - (a.strength || 0));
+        G._personaCards = sorted.map((cl, i) => {
+          const stagesArr = Object.keys(cl.stages || {});
+          const hotStage = stagesArr.find(k => (cl.stages || {})[k] === 'hot') || stagesArr[0] || 'aware';
+          const stageLabel = { unaware: 'Unaware', aware: 'Problem-aware', compare: 'Comparing solutions', consider: 'Considering vendors', decide: 'Decision-ready' }[hotStage] || hotStage;
+          const topGapTitle = (cl.gaps && cl.gaps[0] && cl.gaps[0].ttl) ? cl.gaps[0].ttl : null;
+          const question = topGapTitle
+            ? topGapTitle.replace(/^\"|"$/g, '').substring(0, 100)
+            : 'What is the best solution for ' + (cl.name || 'this problem') + '?';
+          return {
+            name: cl.name || ('Persona ' + (i + 1)),
+            context: stageLabel + ' \u00b7 ' + (cl.queryMatches || 0) + ' matched queries',
+            question: question,
+            score: cl.strength || 0,
+            cited: i === 0
+          };
+        });
+        console.log('[AXO] _personaCards built from clusters:', G._personaCards.length);
+      }
     }
     $('progress').style.display = 'none';
     $('report').style.display = 'block';
+    // Crawl confidence warning — surface prominently when sample is too thin to trust the score
+    const pagesFetched = G._totalPagesCrawled || 0;
+    const warnBanner = document.getElementById('axoCrawlWarning');
+    if (warnBanner) {
+      if (pagesFetched > 0 && pagesFetched < 10) {
+        warnBanner.innerHTML = '<strong>⚠ Low crawl sample (' + pagesFetched + ' pages).</strong> The site blocked most crawl attempts or has very few pages. This score reflects a limited sample — results should be treated as directional, not definitive. Add the sitemap URL in the advanced options and re-run for a full audit.';
+        warnBanner.style.display = 'block';
+      } else if (pagesFetched >= 10 && pagesFetched < 20) {
+        warnBanner.innerHTML = '<strong>⚠ Partial crawl (' + pagesFetched + ' pages).</strong> Score confidence is reduced. Re-run with sitemap URL for better coverage.';
+        warnBanner.style.display = 'block';
+      } else {
+        warnBanner.style.display = 'none';
+      }
+    }
     try {
       renderAll();
       // Immediately render persona cards, vocab gaps, white space from g-report data
       renderNarrative();
       console.log('[AXO] renderAll + renderNarrative OK');
+
+      // Fire competitor batch crawl async — does not block report display.
+      // Replaces estimated competitor scores with real crawled scores once complete.
+      // Only runs if there are competitors with domains to crawl.
+      const competitorsToCrawl = (G.competitors || []).filter(c => !c.you && c.domain && c.domain.includes('.'));
+      if (competitorsToCrawl.length && AXO_CONFIG.proxyBase) {
+        const subjectName = (G.site || '').replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0];
+        runCompetitorBatch(G.competitors, G._aeoScore, subjectName).catch(e => {
+          console.warn('[AXO] Background competitor batch error:', e.message);
+        });
+      } else if (!AXO_CONFIG.proxyBase) {
+        console.log('[AXO] Competitor batch skipped — no proxyBase configured');
+      } else {
+        console.log('[AXO] Competitor batch skipped — no competitor domains found');
+      }
     }
     catch (e) {
       console.error('[AXO] renderAll threw:', e);
@@ -2425,7 +2506,7 @@ async function runCrawl({ onStage } = {}) {
           const ageMs = Date.now() - genAt;
           const isForThisJob = genAt > jobCreatedAt;
           const pagesFetched = s.crawlerPagesFetched || 0;
-          const crawlComplete = s.status === 'complete' && pagesFetched > 50;
+          const crawlComplete = s.status === 'complete' && pagesFetched >= 5;
           if (ageMs < 600000 && isForThisJob && crawlComplete) {
             if (window.axoLog) axoLog('✓ Ready: ' + pagesFetched + ' pages, age ' + Math.round(ageMs/1000) + 's', 'ok');
             return resolve(s);
@@ -2491,6 +2572,109 @@ async function runCrawl({ onStage } = {}) {
   }
   // Return the G-report — showReport does Object.assign(G, gReport)
   return gReport;
+}
+
+/* ── Real competitor crawl & score ──────────────────────────
+   Calls /api/competitor-batch on the Render proxy-server.
+   Each competitor is crawled (up to 100 pages) and scored
+   using the same information-gain model as the subject site.
+   Results replace the fabricated scores in G.competitors and
+   G.cmpDeep, then re-renders the competitor section.
+────────────────────────────────────────────────────────────── */
+async function runCompetitorBatch(competitors, subjectAxo, subjectName) {
+  const proxyBase = AXO_CONFIG.proxyBase;
+  if (!proxyBase) {
+    console.warn('[AXO] No proxyBase configured — competitor scores cannot be crawled. Set window.AXO_PROXY_BASE.');
+    return null;
+  }
+
+  // Include the subject site so "you" is scored on the same crawl method as competitors.
+  // Scores are only comparable if produced by identical methodology.
+  const subjectDomain = (G.site || '').replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/.*$/, '').trim();
+  const subjectEntry = subjectDomain && subjectDomain.includes('.')
+    ? [{ domain: subjectDomain, name: subjectName || subjectDomain, isSubject: true }]
+    : [];
+
+  const compList = (competitors || [])
+    .filter(c => c && !c.you)
+    .map(c => ({ domain: (c.domain || c.name || '').replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/.*$/, '').trim(), name: c.name || c.domain }))
+    .filter(c => c.domain && c.domain.includes('.'));
+
+  // Subject first so it scores alongside competitors; cap total at 6 (subject + 5 comps)
+  const comps = [...subjectEntry, ...compList].slice(0, 6);
+
+  if (!comps.length) {
+    console.warn('[AXO] runCompetitorBatch: no domains to crawl');
+    return null;
+  }
+
+  console.log('[AXO] Starting competitor batch crawl (subject + competitors):', comps.map(c => c.domain).join(', '));
+  if (window.axoLog) axoLog('Crawling subject + competitors: ' + comps.map(c => c.domain).join(', '), 'info');
+
+  // Show a loading state on the competitor section
+  const cmpList = document.getElementById('cmpList');
+  const cmpDeepEl = document.getElementById('cmpDeep');
+  if (cmpList) cmpList.innerHTML = '<p style="color:var(--axo-ink-4);font-size:13px;padding:16px 0;">Crawling all sites for real scores — this takes 2-5 minutes…</p>';
+  if (cmpDeepEl) cmpDeepEl.innerHTML = '';
+
+  try {
+    const res = await fetch(proxyBase + '/api/competitor-batch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ competitors: comps, subjectAxo: subjectAxo, subjectName: subjectName })
+    });
+    if (!res.ok) throw new Error('competitor-batch HTTP ' + res.status);
+    const data = await res.json();
+    if (!data.success || !data.results || !data.results.length) throw new Error('Empty competitor-batch response');
+
+    console.log('[AXO] Competitor batch done:', data.results.map(r => r.name + '=' + r.axo_score).join(', '));
+    if (window.axoLog) axoLog('Competitor scores: ' + data.results.map(r => r.name + ':' + r.axo_score).join(', '), 'ok');
+
+    // Rebuild G.competitors from real crawled scores — all scores are now from the same method
+    G.competitors = data.results.map(r => ({
+      name: r.name || r.domain,
+      domain: r.domain || '',
+      axo: r.axo_score != null ? r.axo_score : null,
+      pages_crawled: r.pages_crawled || 0,
+      you: !!r.isSubject,
+      crawled: true,
+      success: r.success !== false,
+      error: r.error || null
+    }));
+
+    // Update G._aeoScore with the real crawled subject score for consistency
+    const subjectResult = data.results.find(r => r.isSubject);
+    if (subjectResult && subjectResult.axo_score != null) {
+      G._aeoScore = subjectResult.axo_score;
+      console.log('[AXO] Subject real crawl score:', G._aeoScore);
+      if (window.axoLog) axoLog('Subject crawled score: ' + G._aeoScore, 'ok');
+    }
+
+    // Rebuild G.cmpDeep with real page counts
+    const subjectAxoFinal = G._aeoScore;
+    G.cmpDeep = G.competitors.map(c => ({
+      ...c,
+      pages: c.pages_crawled || 0,
+      delta: c.you ? 0 : (c.axo != null && subjectAxoFinal != null ? c.axo - subjectAxoFinal : null)
+    }));
+
+    // Flag any failed competitors visibly
+    const failed = G.competitors.filter(c => !c.you && c.success === false);
+    if (failed.length && window.axoLog) {
+      axoLog('Could not crawl: ' + failed.map(c => c.domain).join(', ') + ' — blocked or unreachable', 'info');
+    }
+
+    // Re-render competitor sections with real data
+    renderCompetitors();
+    renderCompetitorsDeep();
+
+    return data.results;
+  } catch (err) {
+    console.error('[AXO] Competitor batch failed:', err.message);
+    if (window.axoLog) axoLog('Competitor crawl failed: ' + err.message, 'err');
+    if (cmpList) cmpList.innerHTML = '<p style="color:var(--axo-ink-4);font-size:13px;padding:16px 0;">Competitor crawl unavailable (' + err.message + '). Scores are estimates based on content signals.</p>';
+    return null;
+  }
 }
 
 /* ── Toast ───────────────────────────────────────────────── */
@@ -2677,48 +2861,29 @@ function renderNarrative() {
       ch5Title.textContent = ordinal + ' of ' + total + '. The ones above you are reachable. The ones below you are fading.';
     }
   }
-
-  // Get narrative object — everything below depends on this
   const n = G._narrative || {};
   if (!n || !Object.keys(n).length) {
     if (window.axoLog) console.log('[AXO] renderNarrative: no narrative text yet');
     return;
   }
-
   // Fill every element that has a data-n attribute
-  document.querySelectorAll('[data-n]').forEach(function(el) {
+  document.querySelectorAll('[data-n]').forEach(el => {
     const key = el.getAttribute('data-n');
     if (n[key]) {
+      // Preserve any existing bold/em HTML structure by setting innerHTML
+      // but sanitize to prevent XSS — narrative comes from our own Claude output
       el.innerHTML = n[key]
         .replace(/</g, '&lt;').replace(/>/g, '&gt;')
         .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
         .replace(/\*(.+?)\*/g, '<em>$1</em>');
+      el.removeAttribute('data-n'); // mark as filled
     }
   });
-
-  // Fill the bottom line executive pull quote
+  // Also fill the bottom line executive pull quote
   const execNarr = document.querySelector('.exec__narr');
   if (execNarr && n.bottomLine) {
-    execNarr.innerHTML = '<p>' + n.bottomLine.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>') + '</p><p class="exec__attr">— The bottom line</p>';
+    execNarr.innerHTML = '<p>' + n.bottomLine.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>') + '</p><p class="exec__attr">— The bottom line</p>';
   }
-
-  // Dynamic chapter titles — must come AFTER const n is declared above
-  function setTitle(id, text) {
-    var el = document.getElementById(id);
-    if (el && text) el.textContent = text;
-  }
-  function setHtml(id, html) {
-    var el = document.getElementById(id);
-    if (el && html) el.innerHTML = html;
-  }
-  if (n.ch1Title) setTitle('ch1Title', n.ch1Title);
-  if (n.ch1LedeStatic) setHtml('ch1LedeStatic', n.ch1LedeStatic);
-  if (n.ch4Title) setTitle('ch4Title', n.ch4Title);
-  if (n.ch6Title) setTitle('ch6Title', n.ch6Title);
-  if (n.ch7Title) setTitle('ch7Title', n.ch7Title);
-  if (n.ch8Title) setTitle('ch8Title', n.ch8Title);
-  if (n.ch9Title) setTitle('ch9Title', n.ch9Title);
-  if (n.ch10Title) setTitle('ch10Title', n.ch10Title);
 }
 
 function renderAll() {
@@ -2796,19 +2961,19 @@ function renderAll() {
     if (G._stageScores) {
       G._stagePcts = {
         unaware:  Math.max(10, Math.min(95, G._stageScores.unaware || Math.round(s * 0.55))),
-        aware:    Math.max(10, Math.min(95, G._stageScores.aware   || Math.round(s * 1.1 + 25))),
+        aware:    Math.max(10, Math.min(95, G._stageScores.aware   || Math.round(s * 0.75 + 10))),
         compare:  Math.max(10, Math.min(95, G._stageScores.compare || Math.round(s * 0.7 + 5))),
-        consider: Math.max(10, Math.min(95, G._stageScores.consider|| Math.round(s * 0.9 + 20))),
-        decide:   Math.max(10, Math.min(95, G._stageScores.decide  || Math.round(s * 0.8 + 35)))
+        consider: Math.max(10, Math.min(95, G._stageScores.consider|| Math.round(s * 0.8 + 10))),
+        decide:   Math.max(10, Math.min(95, G._stageScores.decide  || Math.round(s * 0.8 + 20)))
       };
     } else {
     // Shared stage pcts — stored on G so renderMethodology uses same values
     G._stagePcts = {
       unaware:  Math.max(10, Math.round(s * 0.55)),
-      aware:    Math.min(95, Math.round(s * 1.1 + 25)),
+      aware:    Math.min(75, Math.round(s * 0.75 + 10)),
       compare:  Math.max(15, Math.round(s * 0.7 + 5)),
-      consider: Math.min(90, Math.round(s * 0.9 + 20)),
-      decide:   Math.min(95, Math.round(s * 0.8 + 35))
+      consider: Math.min(80, Math.round(s * 0.8 + 10)),
+      decide:   Math.min(85, Math.round(s * 0.8 + 20))
     };
     }
 
@@ -3316,25 +3481,55 @@ function renderClusters() {
 }
 
 function renderCompetitors() {
-  const max = Math.max(...G.competitors.map(c => c.axo));
-  $('cmpList').innerHTML = G.competitors.map((c, i) => `
-    <div class="cmp-row">
+  if (!G.competitors || !G.competitors.length) {
+    const el = $('cmpList');
+    if (el) el.innerHTML = '<p style="color:var(--axo-ink-4);font-size:13px;padding:16px 0;">No competitor data — add competitor domains in the form above and re-run.</p>';
+    return;
+  }
+  // If all scores are null, all sites are pending real crawl — show meaningful placeholder
+  const validScores = G.competitors.map(c => c.axo).filter(v => v != null && Number.isFinite(v));
+  if (!validScores.length) {
+    const pendingCount = G.competitors.filter(c => !c.you).length;
+    const el = $('cmpList');
+    if (el) el.innerHTML = '<div style="padding:20px 0;">' +
+      '<p style="color:var(--axo-ink-2);font-size:14px;font-weight:600;margin-bottom:8px;">Crawling ' + pendingCount + ' competitor site' + (pendingCount !== 1 ? 's' : '') + ' + your site…</p>' +
+      '<p style="color:var(--axo-ink-4);font-size:13px;">Scores will appear here when all crawls are complete. This takes 2-5 minutes. Do not close this tab.</p>' +
+      G.competitors.filter(c => !c.you).map(c => '<div style="font-size:12px;color:var(--axo-ink-4);padding:4px 0;font-family:var(--font-mono);">⏳ ' + (c.domain || c.name) + '</div>').join('') +
+      '</div>';
+    return;
+  }
+  const max = Math.max(...validScores) || 100;
+  $('cmpList').innerHTML = G.competitors.map((c, i) => {
+    const scoreDisplay = c.axo != null ? c.axo : (c.success === false ? '<span style="font-size:11px;color:var(--axo-ink-4)">blocked</span>' : '<span style="font-size:11px;color:var(--axo-ink-4)">…</span>');
+    const barWidth = c.axo != null ? (c.axo / max) * 100 : 0;
+    const crawledNote = c.crawled && c.pages_crawled ? '<span style="font-size:10px;color:var(--axo-ink-4);margin-left:6px;">' + c.pages_crawled.toLocaleString() + ' pages</span>' : '';
+    return `<div class="cmp-row">
       <div class="cmp-rank">${c.you ? '★' : String(i+1).padStart(2,'0')}</div>
-      <div class="cmp-name">${c.name}<small>${c.domain}${c.you ? ' · you' : ''}</small></div>
-      <div class="cmp-bar"><div class="cmp-bar-track"><div class="cmp-bar-fill ${c.you ? 'cmp-bar-fill--you' : ''}" style="width:${(c.axo/max)*100}%"></div></div></div>
-      <div class="cmp-score">${c.axo}</div>
-    </div>`).join('');
+      <div class="cmp-name">${c.name}${crawledNote}<small>${c.domain}${c.you ? ' · you' : ''}</small></div>
+      <div class="cmp-bar"><div class="cmp-bar-track"><div class="cmp-bar-fill ${c.you ? 'cmp-bar-fill--you' : ''}" style="width:${barWidth}%"></div></div></div>
+      <div class="cmp-score">${scoreDisplay}</div>
+    </div>`;
+  }).join('');
 }
 
 function renderCompetitorsDeep() {
-  const max = Math.max(...G.cmpDeep.map(c => c.axo));
-  $('cmpDeep').innerHTML = G.cmpDeep.map((c, i) => `
-    <div class="cmp-row">
+  if (!G.cmpDeep || !G.cmpDeep.length) return;
+  const validScores = G.cmpDeep.map(c => c.axo).filter(v => v != null && Number.isFinite(v));
+  const max = validScores.length ? Math.max(...validScores) : 100;
+  $('cmpDeep').innerHTML = G.cmpDeep.map((c, i) => {
+    const scoreDisplay = c.axo != null ? c.axo : (c.success === false ? 'N/A' : '…');
+    const barWidth = c.axo != null ? (c.axo / max) * 100 : 0;
+    const deltaHtml = (c.delta != null && c.delta !== 0)
+      ? `<div style="font-family:var(--font-mono);font-size:10px;color:${c.delta>0?'#558A1F':'#C54A1F'};font-weight:700;margin-top:2px;">${c.delta>0?'+':''}${c.delta}</div>`
+      : '';
+    const pagesLabel = c.pages ? c.pages.toLocaleString() + ' pages' : (c.you ? '' : 'crawling…');
+    return `<div class="cmp-row">
       <div class="cmp-rank">${c.you ? '★' : String(i+1).padStart(2,'0')}</div>
-      <div class="cmp-name">${c.name}<small>${c.pages.toLocaleString()} pages${c.you ? ' · you' : ''}</small></div>
-      <div class="cmp-bar"><div class="cmp-bar-track"><div class="cmp-bar-fill ${c.you ? 'cmp-bar-fill--you' : ''}" style="width:${(c.axo/max)*100}%"></div></div></div>
-      <div class="cmp-score">${c.axo}${c.delta ? `<div style="font-family:var(--font-mono);font-size:10px;color:${c.delta>0?'#558A1F':'#C54A1F'};font-weight:700;margin-top:2px;">${c.delta>0?'+':''}${c.delta}</div>` : ''}</div>
-    </div>`).join('');
+      <div class="cmp-name">${c.name}<small>${pagesLabel}${c.you ? ' · you' : ''}</small></div>
+      <div class="cmp-bar"><div class="cmp-bar-track"><div class="cmp-bar-fill ${c.you ? 'cmp-bar-fill--you' : ''}" style="width:${barWidth}%"></div></div></div>
+      <div class="cmp-score">${scoreDisplay}${deltaHtml}</div>
+    </div>`;
+  }).join('');
 }
 
 function renderFunnel() {
@@ -3352,10 +3547,10 @@ function renderMethodology() {
   const s = G._aeoScore || 50;
   const stagePcts = G._stagePcts || {
     unaware:  Math.max(10, Math.round(s * 0.55)),
-    aware:    Math.min(95, Math.round(s * 1.1 + 25)),
+    aware:    Math.min(75, Math.round(s * 0.75 + 10)),
     compare:  Math.max(15, Math.round(s * 0.7 + 5)),
-    consider: Math.min(90, Math.round(s * 0.9 + 20)),
-    decide:   Math.min(95, Math.round(s * 0.8 + 35))
+    consider: Math.min(80, Math.round(s * 0.8 + 10)),
+    decide:   Math.min(85, Math.round(s * 0.8 + 20))
   };
   const stageMeta = {
     unaware:  { label: 'Unaware',  score: stagePcts.unaware + '% presence', blurb: 'Category-level education queries. Where weakest-stage diagnosis is concentrated.' },
@@ -3650,7 +3845,6 @@ function resetForNewDiagnostic() {
   G._byEngine             = {};
   G._stageScores          = null;
   G._jobId                = null;
-  window._axoCurrentJobId = null;
   G._totalPagesCrawled    = 0;
   G._generatedAt          = null;
   G._companySummary       = '';
