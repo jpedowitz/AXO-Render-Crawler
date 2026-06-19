@@ -1989,29 +1989,20 @@ function startDiagnostic() {
           consider: 'on',
           decide: strongAtDecide ? 'hot' : 'on'
         };
-        // Per-persona LLM scores: start from aggregate byEngine values then apply
-        // persona-specific variance. Each engine has a different "sensitivity" to
-        // persona type — Claude skews toward technical content, Gemini toward
-        // commercial/transactional, Perplexity toward research/comparison queries.
-        // We model this with deterministic but persona-indexed offsets so every
-        // row in the table shows meaningfully different numbers.
-        const pVariance = [
-          // [claude, openai, perplexity, gemini] delta per persona index
-          [  0,  0,  0,  0 ],   // persona 0 — baseline
-          [ -8, +5, -4, +3 ],   // persona 1 — commercial/procurement skews toward openai/gemini
-          [ +6, -7, +8, -5 ],   // persona 2 — research/technical skews toward claude/perplexity
-          [ -4, +3, -6, +9 ],   // persona 3 — transactional skews toward gemini
-        ][i] || [0,0,0,0];
+        // Per-cluster LLM scores: use the real byEngine aggregate scores for every
+        // cluster. We do not fabricate per-persona variance — the LLM panel runs
+        // once on the full site, so cluster-level breakdown is whole-site analysis.
+        // Showing artificial offsets per persona would misrepresent the data.
         const clamp = (v, lo=5, hi=100) => Math.min(hi, Math.max(lo, Math.round(v)));
         const baseC = byEngine.claude     || clusterScore;
         const baseO = byEngine.openai     || clusterScore;
         const baseP = byEngine.perplexity || clusterScore;
         const baseG = byEngine.gemini     || clusterScore;
         const llmScores = {
-          claude:     clamp(baseC + pVariance[0]),
-          openai:     clamp(baseO + pVariance[1]),
-          perplexity: clamp(baseP + pVariance[2]),
-          gemini:     clamp(baseG + pVariance[3])
+          claude:     clamp(baseC),
+          openai:     clamp(baseO),
+          perplexity: clamp(baseP),
+          gemini:     clamp(baseG)
         };
         return {
           name: String(persona),
