@@ -2300,19 +2300,11 @@ function startDiagnostic() {
       renderNarrative();
       console.log('[AXO] renderAll + renderNarrative OK');
 
-      // Fire competitor batch crawl async — does not block report display.
-      // Replaces estimated competitor scores with real crawled scores once complete.
-      // Only runs if there are competitors with domains to crawl.
-      const competitorsToCrawl = (G.competitors || []).filter(c => !c.you && c.domain && c.domain.includes('.'));
-      if (competitorsToCrawl.length && AXO_CONFIG.proxyBase) {
-        const subjectName = (G.site || '').replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0];
-        runCompetitorBatch(G.competitors, G._aeoScore, subjectName).catch(e => {
-          console.warn('[AXO] Background competitor batch error:', e.message);
-        });
-      } else if (!AXO_CONFIG.proxyBase) {
-        console.log('[AXO] Competitor batch skipped — no proxyBase configured');
-      } else {
-        console.log('[AXO] Competitor batch skipped — no competitor domains found');
+      // Competitor scores arrive pre-scored from the Render worker in G.competitors.
+      // No secondary batch crawl needed — renderCompetitors() above already rendered them.
+      const crawledComps = (G.competitors || []).filter(c => !c.you && c.crawled && c.axo != null);
+      if (crawledComps.length && window.axoLog) {
+        axoLog('Competitor scores loaded from Render: ' + crawledComps.map(c => c.domain + ' (' + c.axo + ')').join(', '), 'ok');
       }
     }
     catch (e) {
@@ -3464,10 +3456,16 @@ function renderCompetitors() {
   $('cmpList').innerHTML = G.competitors.map((c, i) => {
     const scoreDisplay = c.axo != null ? c.axo : (c.success === false ? '<span style="font-size:11px;color:var(--axo-ink-4)">blocked</span>' : '<span style="font-size:11px;color:var(--axo-ink-4)">…</span>');
     const barWidth = c.axo != null ? (c.axo / max) * 100 : 0;
-    const crawledNote = c.crawled && c.pages_crawled ? '<span style="font-size:10px;color:var(--axo-ink-4);margin-left:6px;">' + c.pages_crawled.toLocaleString() + ' pages</span>' : '';
+    const crawlNote = c.you
+      ? (c.pages_crawled || 0) > 0 ? '<span style="font-size:10px;color:var(--axo-ink-4);margin-left:6px;">' + (c.pages_crawled || 0).toLocaleString() + ' pages</span>' : ''
+      : c.crawled && (c.pages_crawled || 0) > 0
+        ? '<span style="font-size:10px;color:var(--axo-ink-4);margin-left:6px;">' + (c.pages_crawled || 0).toLocaleString() + ' pages</span>'
+        : c.crawled && (c.pages_crawled || 0) === 0
+          ? '<span style="font-size:10px;color:#C54A1F;margin-left:6px;">blocked · score estimated</span>'
+          : '';
     return `<div class="cmp-row">
       <div class="cmp-rank">${c.you ? '★' : String(i+1).padStart(2,'0')}</div>
-      <div class="cmp-name">${c.name}${crawledNote}<small>${c.domain}${c.you ? ' · you' : ''}</small></div>
+      <div class="cmp-name">${c.name}${crawlNote}<small>${c.domain}${c.you ? ' · you' : ''}</small></div>
       <div class="cmp-bar"><div class="cmp-bar-track"><div class="cmp-bar-fill ${c.you ? 'cmp-bar-fill--you' : ''}" style="width:${barWidth}%"></div></div></div>
       <div class="cmp-score">${scoreDisplay}</div>
     </div>`;
