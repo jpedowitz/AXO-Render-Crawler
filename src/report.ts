@@ -1,8 +1,19 @@
 import type { reducePages } from './reducer.js';
 import type { EngineResult } from './llm.js';
 import type { CitationSimulation } from './citation.js';
+import {
+  computeVocabularyCoverage,
+  vocabularyHeadline,
+  computeContentFormatMix,
+  type PresenceReportFields,
+  type PresenceObservation,
+} from './presence.js';
 
 // ── Query generation ──────────────────────────────────────────────────
+// NOTE: This bank is retained only as a fallback list for display when the
+// live presence measurement (presence.ts) did not run. When presence runs,
+// the report's authoritative question set + results come from the measured
+// observations (queryAudit), not from this generator.
 
 function generateQueries(
   domain: string,
@@ -175,18 +186,16 @@ function generateQueries(
 }
 
 // ── Stage score derivation ────────────────────────────────────────────
-// FIX: Original formulas added constant offsets that inflated scores regardless of content quality.
-// aware = textScore + 5 at score=50 → 55. decide = textScore + 10 at score=50 → 60.
-// These made the buyer journey chart look consistently strong.
-// Revised: no offsets — stage scores reflect the gap text sentiment directly.
-// A company with no content for a stage gets ~35-40, not 55-65.
+// Heuristic stage scores from buyer-journey gap text. Used ONLY to weight
+// query sampling. When live presence runs, real stagePresence overrides these
+// in the report output. Exported so the worker weights sampling identically.
 
-function deriveStageScores(
+export function deriveStageScores(
   buyerJourneyGaps: Record<string, string>,
   overallScore: number
 ): Record<string, number> {
   const scoreText = (text: string): number => {
-    if (!text) return 40; // FIX: default was 50 — no content defaults to 40 (below midpoint)
+    if (!text) return 40;
     const t = text.toLowerCase();
     let s = 50;
     ['missing', 'absent', 'gap', 'weak', 'poor', 'limited', 'lacks', 'thin', 'insufficient', 'no ', 'minimal'].forEach(w => {
@@ -198,11 +207,6 @@ function deriveStageScores(
     return Math.max(10, Math.min(90, s));
   };
 
-  // FIX: Removed all constant offsets (+5, +10, -15 etc.) — they shifted every score
-  // upward regardless of what the gap text actually said.
-  // Awareness text informs both unaware and aware stages equally.
-  // Consideration text informs compare and consider equally.
-  // Decision text informs decide directly.
   return {
     unaware:  Math.max(10, Math.min(90, scoreText(buyerJourneyGaps.awareness || ''))),
     aware:    Math.max(10, Math.min(90, scoreText(buyerJourneyGaps.awareness || ''))),
@@ -213,13 +217,9 @@ function deriveStageScores(
 }
 
 // ── Cluster builder ───────────────────────────────────────────────────
-// FIX: clusters were never built or returned in the report.
-// The HTML frontend's _personaCards section depends entirely on G.clusters
-// coming from the n8n results bridge. Without clusters, _personaCards stays []
-// and the entire M3 persona section renders blank.
-//
-// Clusters are derived from: buyer personas × top content gaps × stage scores.
-// Each cluster = one buyer persona mapped to their highest-gap buyer stage.
+// Clusters map personas to their highest-gap stage. When presence is measured,
+// each cluster's strength and query count are overwritten with REAL values
+// (see enrichClustersWithPresence below) — no fabricated/random numbers.
 
 function buildClusters(
   intelligence: {
@@ -232,8 +232,8 @@ function buildClusters(
   competitorDomains: string[]
 ): Array<{
   name: string;
-  strength: number;
-  queryMatches: number;
+  strength: number | null;
+  queryMatches: number | null;
   stages: Record<string, string>;
   gaps: Array<{ ttl: string }>;
 }> {
@@ -241,27 +241,19 @@ function buildClusters(
   const gaps = (intelligence.topContentGaps || []).slice(0, 10);
   const faqs = (intelligence.missingFAQOpportunities || []).slice(0, 5);
 
-  // Stage weakness map — weakest stages get flagged as 'hot' on each persona cluster
   const stages = ['unaware', 'aware', 'compare', 'consider', 'decide'];
   const stageWeakness = stages.map(s => ({ stage: s, score: stageScores[s] || 50 }));
-  stageWeakness.sort((a, b) => a.score - b.score); // weakest first
+  stageWeakness.sort((a, b) => a.score - b.score);
 
   return personas.map((persona, i) => {
-    // Assign each persona to a stage band based on their index
-    // (spreads personas across all stages rather than piling them on the weakest)
     const primaryStage = stageWeakness[i % stageWeakness.length].stage;
     const secondaryStage = stageWeakness[(i + 1) % stageWeakness.length].stage;
 
-    // strength = inverse of stage score (weaker stage = higher priority cluster)
-    const strength = Math.max(5, 100 - (stageScores[primaryStage] || 50));
-
-    // Assign relevant gaps to this cluster (rotate through gaps list)
     const clusterGaps = gaps
       .filter((_, gi) => gi % personas.length === i || gi % (personas.length + 1) === i)
       .slice(0, 3)
       .map(g => ({ ttl: g }));
 
-    // Add FAQ opportunities if we have them
     if (faqs[i]) clusterGaps.push({ ttl: faqs[i] });
 
     const stageMap: Record<string, string> = {};
@@ -270,10 +262,33 @@ function buildClusters(
 
     return {
       name: persona,
-      strength,
-      queryMatches: Math.round(20 - i * 3 + Math.random() * 5), // relative — just for display ordering
+      // null until presence measurement fills these in — never fabricated
+      strength: null,
+      queryMatches: null,
       stages: stageMap,
       gaps: clusterGaps,
+    };
+  });
+}
+
+// Overwrite cluster strength + query counts with REAL measured presence.
+function enrichClustersWithPresence(
+  clusters: ReturnType<typeof buildClusters>,
+  presence: PresenceReportFields | null
+) {
+  if (!presence) return clusters;
+  const byPersona = new Map(presence.personaScores.map(p => [p.persona, p]));
+  return clusters.map(c => {
+    // match cluster persona to the measured persona (exact, then prefix)
+    const exact = byPersona.get(c.name);
+    const fuzzy = exact || presence.personaScores.find(p =>
+      p.persona.toLowerCase().startsWith(String(c.name).toLowerCase().slice(0, 12)) ||
+      String(c.name).toLowerCase().startsWith(p.persona.toLowerCase().slice(0, 12))
+    );
+    return {
+      ...c,
+      strength: fuzzy ? fuzzy.score : c.strength,
+      queryMatches: fuzzy ? fuzzy.queries : c.queryMatches,
     };
   });
 }
@@ -288,11 +303,14 @@ export function buildReport(args: {
   competitorSummaries?: any[];
   citationSimulation?: CitationSimulation;
   embeddingResult?: { enabled: boolean; stored: number };
-  crawlPageCount?: number; // FIX: added — needed for crawl confidence warning in HTML
+  crawlPageCount?: number;
+  presence?: PresenceReportFields | null;          // REAL measured presence
+  observations?: PresenceObservation[];            // raw, for the audit appendix
 }) {
   const bestData = args.llmPanel.find(r => r.ok && r.data && Object.keys(r.data).length)?.data || {};
 
   const intelligence = {
+    companyName: bestData.companyName || '',
     companySummary: bestData.companySummary || '',
     buyerPersonas: bestData.buyerPersonas || [],
     topContentGaps: bestData.topContentGaps || [],
@@ -302,7 +320,6 @@ export function buildReport(args: {
     schemaOpportunities: bestData.schemaOpportunities || [],
   };
 
-  // Only include competitors with a real score — never show null scores in the chart
   const competitorSummaries = (args.competitorSummaries || []).filter(c => c.domain && c.score != null);
   const competitorDomains = competitorSummaries.map(c => String(c.domain));
 
@@ -312,11 +329,11 @@ export function buildReport(args: {
     args.job.domain, args.blended.score, intelligence, competitorDomains, stageScores
   );
 
-  // FIX: Build clusters so the HTML frontend can render _personaCards in the M3 section.
-  // Previously missing entirely — caused the persona section to always render blank.
-  const clusters = buildClusters(intelligence, stageScores, competitorDomains);
+  const presence = args.presence || null;
 
-  // Crawl confidence for the HTML warning banner
+  let clusters = buildClusters(intelligence, stageScores, competitorDomains);
+  clusters = enrichClustersWithPresence(clusters, presence);
+
   const crawlPageCount = args.crawlPageCount ?? args.summary.pagesFetched;
   const crawlConfidence = crawlPageCount >= 75 ? 'high'
     : crawlPageCount >= 30 ? 'medium'
@@ -328,9 +345,12 @@ export function buildReport(args: {
     domain: args.job.domain,
     generatedAt: new Date().toISOString(),
     axoSnapshot: {
-      aeoReadinessScore: args.blended.score,
-      aeoScoreByEngine: args.blended.byEngine,
-      enginesUsed: args.blended.enginesUsed,
+      // headline score: prefer measured presence; fall back to crawl-analysis blend
+      aeoReadinessScore: presence ? presence.aeoPresenceScore : args.blended.score,
+      analysisScore: args.blended.score,                 // crawl-analysis blend (context)
+      aeoScoreByEngine: presence ? presence.byEngine : args.blended.byEngine,
+      engineModes: presence ? presence.engineModes : null,
+      enginesUsed: presence ? presence.enginesUsed : args.blended.enginesUsed,
       nullEngines: args.blended.nullEngines,
       pagesFetched: args.summary.pagesFetched,
       avgAeoSignal: args.summary.avgAeoSignal,
@@ -340,11 +360,31 @@ export function buildReport(args: {
       embeddingsStored: args.embeddingResult?.stored ?? 0,
       crawlPageCount,
       crawlConfidence,
+      presenceMeasured: !!presence,
     },
     intelligence,
     stageScores,
-    // FIX: clusters now included — required by HTML frontend for _personaCards / M3 section
+
+    // ── REAL measured fields (null when measurement did not run) ────────
+    presence,
+    stagePresence: presence ? presence.stagePresence : null,
+    vocabulary: {
+      headlinePct: vocabularyHeadline(args.summary),
+      terms: computeVocabularyCoverage(args.summary),
+    },
+    contentFormatMix: computeContentFormatMix(args.summary),
+    citationCounts: presence ? presence.citationCounts : [],
+    competitorShareOfVoice: presence ? presence.competitorShareOfVoice : [],
+    engineByPersona: presence ? presence.engineByPersona : [],
+    // Auditable: real questions asked + which engines answered + the result.
+    queryAudit: (args.observations || []).map(o => ({
+      id: o.queryId, stage: o.stage, persona: o.persona, engine: o.engine,
+      mode: o.mode, brandPresent: o.brandPresent, brandCited: o.brandCited,
+      prominence: o.prominence, competitorsNamed: o.competitorsNamed,
+    })),
+
     clusters,
+    // fallback display list only; appendix should render from queryAudit when present
     queries,
     citationSimulation: args.citationSimulation || null,
     embeddingLayer: args.embeddingResult || { enabled: false, stored: 0 },
@@ -378,7 +418,6 @@ export function buildReport(args: {
       contentHash: p.contentHash, aeoSignal: p.aeoSignal,
       priority: p.classification?.priority,
     })),
-    // FIX: competitors only shows scored entries — null scores excluded
     competitors: competitorSummaries,
   };
 }
