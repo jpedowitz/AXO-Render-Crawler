@@ -6,10 +6,16 @@ import { crawlSite, type CrawledPage } from '../crawler.js';
 import { reducePages, buildCompactPrompt } from '../reducer.js';
 import { runLLMPanel } from '../llm.js';
 import { blendScores, deterministicScore } from '../scorer.js';
-import { buildReport } from '../report.js';
+import { buildReport, deriveStageScores } from '../report.js';
 import { simulateCitationReadiness } from '../citation.js';
 import { maybeStorePageEmbeddings } from '../embeddings.js';
 import { event, updateJob } from '../api/jobService.js';
+import {
+  buildQuerySpecs,
+  measurePresence,
+  buildPresenceReportFields,
+  type PresenceObservation,
+} from '../presence.js';
 
 requireConfig();
 
@@ -90,22 +96,20 @@ Return ONLY a valid JSON array with exactly this shape, nothing else:
 }
 
 // ── Score a single competitor site ────────────────────────────────────
-// FIX: Competitors now use runLLMPanel (single Claude call) instead of
-// deterministicScore(). This makes competitor scores directly comparable
-// to the subject site score — same method, same prompt structure.
-// deterministicScore() is kept as a hard fallback if the LLM call fails.
+// Competitors use the same method as the subject (LLM panel via runLLMPanel),
+// with deterministicScore as a hard fallback if the LLM call fails.
 //
-// FIX: Per-competitor timeout raised from 45s to 150s (2.5 min).
-// 45s was not enough for any site with a real sitemap index:
-// - Sitemap discovery alone can take 20-30s on large sites
-// - Leaving only 15-25s for actual page fetching = 1-5 pages
-// The sitemap discovery in crawler.ts now has its own 45s budget
-// so the 150s budget here covers sitemap(45s) + crawl(105s).
+// FLOOR FIX: a crawl too thin to mean anything returns score=null instead of a
+// confident-looking number. report.ts filters null scores out of the chart, so
+// a 1-page crawl no longer surfaces as "45". This kills the fabricated
+// competitor numbers (Quantum/NGP 45 off 1 page, Riverstone "estimated 18").
+
+const COMPETITOR_MIN_PAGES = 5;
 
 async function scoreCompetitorSite(
   compDomain: string,
   competitorLimit: number
-): Promise<{ score: number; pagesFetched: number; avgAeoSignal: number; method: string }> {
+): Promise<{ score: number | null; pagesFetched: number; avgAeoSignal: number; method: string }> {
 
   const compPages = await crawlSite({
     startUrl: `https://${compDomain}`,
@@ -113,14 +117,23 @@ async function scoreCompetitorSite(
     maxPages: competitorLimit,
     depth: 3,
     includeSubdomains: false,
-    timeoutMs: config.crawlTimeoutMs,  // same timeout as subject — comparable crawl depth
+    timeoutMs: config.crawlTimeoutMs,
     concurrency: Math.min(config.crawlConcurrency, 15),
     perHostConcurrency: config.crawlPerHostConcurrency,
   });
 
   const compSummary = reducePages(compPages);
 
-  // Attempt LLM scoring for parity with subject site method
+  // FLOOR: do not emit a score for a crawl too thin to be meaningful.
+  if (compSummary.pagesFetched < COMPETITOR_MIN_PAGES) {
+    return {
+      score: null,
+      pagesFetched: compSummary.pagesFetched,
+      avgAeoSignal: compSummary.avgAeoSignal,
+      method: 'insufficient',
+    };
+  }
+
   let score: number;
   let method: string;
 
@@ -131,7 +144,6 @@ async function scoreCompetitorSite(
     score = compBlended.score;
     method = 'llm';
   } catch (llmErr: any) {
-    // Hard fallback to deterministic if LLM fails — log clearly
     console.warn(`[competitor] LLM scoring failed for ${compDomain}, using deterministicScore: ${llmErr?.message}`);
     score = deterministicScore(compSummary);
     method = 'deterministic';
@@ -212,6 +224,60 @@ async function bulkUpsertPages(jobId: string, pages: CrawledPage[]) {
   }
 }
 
+// ── Persist presence observations + rolled-up summary ──────────────────
+
+async function persistPresence(
+  jobId: string,
+  observations: PresenceObservation[],
+  specs: Array<{ id: string; stage: string; q: string }>,
+  presence: ReturnType<typeof buildPresenceReportFields>
+) {
+  const batch = 100;
+  for (let i = 0; i < observations.length; i += batch) {
+    const chunk = observations.slice(i, i + batch);
+    const vals: unknown[] = [];
+    const ph = chunk.map((o, k) => {
+      const b = k * 14;
+      vals.push(
+        jobId, o.queryId, o.stage, o.persona, o.engine, o.mode,
+        specs.find(s => s.id === o.queryId && s.stage === o.stage)?.q || '',
+        o.brandPresent, o.prominence, o.brandCited,
+        JSON.stringify(o.citedUrls), JSON.stringify(o.competitorsNamed),
+        o.answerExcerpt || null, o.ms
+      );
+      return `($${b+1},$${b+2},$${b+3},$${b+4},$${b+5},$${b+6},$${b+7},$${b+8},$${b+9},$${b+10},$${b+11},$${b+12},$${b+13},$${b+14})`;
+    }).join(',');
+    await query(
+      `insert into axo_query_observations
+       (job_id, query_id, stage, persona, engine, mode, question,
+        brand_present, prominence, brand_cited, cited_urls, competitors_named,
+        answer_excerpt, ms)
+       values ${ph}`,
+      vals
+    );
+  }
+
+  await query(
+    `insert into axo_presence_summaries
+      (job_id, presence_score, by_engine, engine_modes, stage_presence,
+       persona_scores, engine_by_persona, citation_counts, competitor_sov,
+       total_observations, brand_cited_count, retrieval_coverage, measured_at)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,now())
+     on conflict (job_id) do update set
+       presence_score=excluded.presence_score, by_engine=excluded.by_engine,
+       engine_modes=excluded.engine_modes, stage_presence=excluded.stage_presence,
+       persona_scores=excluded.persona_scores, engine_by_persona=excluded.engine_by_persona,
+       citation_counts=excluded.citation_counts, competitor_sov=excluded.competitor_sov,
+       total_observations=excluded.total_observations, brand_cited_count=excluded.brand_cited_count,
+       retrieval_coverage=excluded.retrieval_coverage, measured_at=now()`,
+    [jobId, presence.aeoPresenceScore, JSON.stringify(presence.byEngine),
+     JSON.stringify(presence.engineModes), JSON.stringify(presence.stagePresence),
+     JSON.stringify(presence.personaScores), JSON.stringify(presence.engineByPersona),
+     JSON.stringify(presence.citationCounts), JSON.stringify(presence.competitorShareOfVoice),
+     presence.totalObservations, presence.brandCitedCount, presence.retrievalCoverage]
+  );
+}
+
 // ── Main diagnostic pipeline ──────────────────────────────────────────
 
 async function runDiagnostic(jobId: string) {
@@ -263,11 +329,15 @@ async function runDiagnostic(jobId: string) {
     embeddings: embeddingResult,
   });
 
-  // ── Phase 2: LLM scoring ──────────────────────────────────────────
+  // ── Phase 2: LLM scoring (crawl analysis) ─────────────────────────
   await updateJob(jobId, { stage: 'scoring' });
   const prompt = buildCompactPrompt(job.domain, summary);
   const llmPanel = await runLLMPanel(prompt);
   const blended = blendScores(summary, llmPanel);
+
+  const bestIntel =
+    llmPanel.find(r => r.engine === 'claude' && r.ok && r.data)?.data ||
+    llmPanel.find(r => r.ok && r.data)?.data || {};
 
   // ── Phase 3: Competitor discovery ────────────────────────────────
   const userSpecifiedCompetitors: string[] = Array.isArray(job.competitors) ? job.competitors : [];
@@ -275,14 +345,11 @@ async function runDiagnostic(jobId: string) {
 
   if (competitorDomains.length === 0) {
     await updateJob(jobId, { stage: 'competitor_discovery' });
-    const claudeResult = llmPanel.find(r => r.engine === 'claude' && r.ok && r.data);
-    const anyResult = llmPanel.find(r => r.ok && r.data);
-    const intelligence = claudeResult?.data || anyResult?.data || {};
-    const personas: string[] = Array.isArray(intelligence.buyerPersonas) ? intelligence.buyerPersonas : [];
+    const personas: string[] = Array.isArray(bestIntel.buyerPersonas) ? bestIntel.buyerPersonas : [];
     const siteSummary = [
-      intelligence.companySummary || '',
-      (intelligence.topContentGaps || []).slice(0, 3).join('. '),
-      (intelligence.quickWins || []).slice(0, 2).join('. '),
+      bestIntel.companySummary || '',
+      (bestIntel.topContentGaps || []).slice(0, 3).join('. '),
+      (bestIntel.quickWins || []).slice(0, 2).join('. '),
     ].filter(Boolean).join(' ');
 
     const discovered = await findCompetitors(job.domain, personas, siteSummary);
@@ -291,12 +358,6 @@ async function runDiagnostic(jobId: string) {
   }
 
   // ── Phase 4: Competitor crawl + scoring ───────────────────────────
-  // FIX: Competitors now crawled with same method as subject (LLM scoring via runLLMPanel).
-  // FIX: Timeout raised from 45s to 150s per competitor — 45s wasn't enough for sitemap discovery alone.
-  // FIX: Competitors run sequentially in pairs (not full Promise.all) to avoid Render memory spikes
-  //      when crawling 5 sites simultaneously at 15 concurrent connections each.
-  // FIX: crawlConfidence logged and stored per competitor for report quality warnings.
-
   const COMPETITOR_TIMEOUT_MS = 150000; // 2.5 min per competitor
   let competitorSummaries: any[] = [];
 
@@ -304,7 +365,6 @@ async function runDiagnostic(jobId: string) {
     await updateJob(jobId, { stage: 'competitor_scoring' });
     console.log(`[worker] Scoring ${competitorDomains.length} competitors (${COMPETITOR_TIMEOUT_MS / 1000}s each)…`);
 
-    // Run in pairs to balance speed vs memory
     for (let i = 0; i < Math.min(competitorDomains.length, 5); i += 2) {
       const pair = competitorDomains.slice(i, i + 2);
       const pairResults = await Promise.allSettled(
@@ -329,9 +389,10 @@ async function runDiagnostic(jobId: string) {
               : 'insufficient';
 
             await query(
-              `update axo_competitors set status='complete', pages_fetched=$3, score=$4, completed_at=now()
+              `update axo_competitors set status=$5, pages_fetched=$3, score=$4, completed_at=now()
                where job_id=$1 and domain=$2`,
-              [jobId, compDomain, result.pagesFetched, result.score]
+              [jobId, compDomain, result.pagesFetched, result.score,
+               result.score == null ? 'insufficient' : 'complete']
             );
 
             console.log(`[competitor] ${compDomain}: score=${result.score}, pages=${result.pagesFetched}, method=${result.method}, confidence=${crawlConfidence}`);
@@ -361,13 +422,69 @@ async function runDiagnostic(jobId: string) {
     }
   }
 
+  // ── Phase 4.5: AI presence measurement ────────────────────────────
+  // Execute the buyer-question set against the live engines and measure REAL
+  // brand/competitor presence + citations. Every downstream report number is
+  // derived from these observations. Nothing here is fabricated.
+  await updateJob(jobId, { stage: 'presence' });
+
+  const stageScoresForQueries = deriveStageScores(bestIntel.buyerJourneyGaps || {}, blended.score);
+
+  const brandName =
+    (bestIntel.companyName && String(bestIntel.companyName)) ||
+    job.domain.split('.')[0];
+
+  const competitorsForDetection = competitorSummaries
+    .filter(c => c.domain && c.domain !== 'unknown')
+    .map(c => ({ name: String(c.domain).split('.')[0], domain: String(c.domain) }));
+
+  const specs = buildQuerySpecs(
+    job.domain,
+    Array.isArray(bestIntel.buyerPersonas) ? bestIntel.buyerPersonas : [],
+    bestIntel,
+    competitorsForDetection.map(c => c.domain),
+    stageScoresForQueries
+  );
+
+  let observations: PresenceObservation[] = [];
+  try {
+    observations = await measurePresence({
+      brand: { name: brandName, domain: job.domain },
+      competitors: competitorsForDetection,
+      specs,
+      concurrency: Number(process.env.AXO_PRESENCE_CONCURRENCY || 6),
+      onProgress: (d, t) => { if (d % 25 === 0) console.log(`[presence] ${d}/${t}`); },
+    });
+  } catch (err: any) {
+    console.warn(`[presence] measurement failed; report will mark presence unmeasured: ${err?.message}`);
+    await event(jobId, 'presence.failed', { error: err?.message });
+  }
+
+  let presence: ReturnType<typeof buildPresenceReportFields> | null = null;
+  if (observations.length) {
+    presence = buildPresenceReportFields(observations, job.domain);
+    try {
+      await persistPresence(jobId, observations, specs, presence);
+    } catch (err: any) {
+      console.warn(`[presence] persistence failed: ${err?.message}`);
+    }
+    await event(jobId, 'presence.completed', {
+      presenceScore: presence.aeoPresenceScore,
+      observations: presence.totalObservations,
+      retrievalCoverage: presence.retrievalCoverage,
+    });
+  }
+
   // ── Phase 5: Build and store report ──────────────────────────────
   await updateJob(jobId, { stage: 'reporting' });
   const report = buildReport({
     job, summary, llmPanel, blended, competitorSummaries, citationSimulation, embeddingResult,
-    // Pass crawl depth so report and HTML can show confidence warning
     crawlPageCount: pages.length,
+    presence,
+    observations,
   });
+
+  const headlineScore = presence ? presence.aeoPresenceScore : blended.score;
 
   await query(
     `insert into axo_results (job_id, score, scores_by_engine, engines_used, report)
@@ -375,17 +492,20 @@ async function runDiagnostic(jobId: string) {
      on conflict (job_id) do update set
        score=excluded.score, scores_by_engine=excluded.scores_by_engine,
        engines_used=excluded.engines_used, report=excluded.report, generated_at=now()`,
-    [jobId, blended.score, JSON.stringify(blended.byEngine), JSON.stringify(blended.enginesUsed), JSON.stringify(report)]
+    [jobId, headlineScore,
+     JSON.stringify(presence ? presence.byEngine : blended.byEngine),
+     JSON.stringify(presence ? presence.enginesUsed : blended.enginesUsed),
+     JSON.stringify(report)]
   );
 
   await updateJob(jobId, { status: 'complete', stage: 'complete', completedAt: new Date() });
-  await event(jobId, 'report.completed', { score: blended.score, enginesUsed: blended.enginesUsed });
+  await event(jobId, 'report.completed', { score: headlineScore, enginesUsed: presence ? presence.enginesUsed : blended.enginesUsed });
 
   if (config.n8nWebhookUrl) {
     await fetch(config.n8nWebhookUrl, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ type: 'axo.report.completed', jobId, domain: job.domain, score: blended.score }),
+      body: JSON.stringify({ type: 'axo.report.completed', jobId, domain: job.domain, score: headlineScore }),
     }).catch(() => undefined);
   }
 
