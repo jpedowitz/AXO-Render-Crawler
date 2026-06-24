@@ -1,6 +1,5 @@
 import { Worker } from 'bullmq';
 import { config, requireConfig } from '../config.js';
-import { redis } from '../queue.js';
 import { one, query } from '../db.js';
 import { crawlSite, type CrawledPage } from '../crawler.js';
 import { reducePages, buildCompactPrompt } from '../reducer.js';
@@ -516,6 +515,9 @@ async function runDiagnostic(jobId: string) {
 }
 
 // ── BullMQ worker ─────────────────────────────────────────────────────
+// Pass connection OPTIONS (not a constructed Redis instance) so BullMQ builds
+// its own client from its bundled ioredis. This avoids the ioredis/bullmq
+// duplicate-package type conflict.
 
 new Worker('axo-diagnostic', async bullJob => {
   const { jobId } = bullJob.data as { jobId: string };
@@ -526,6 +528,6 @@ new Worker('axo-diagnostic', async bullJob => {
     await event(jobId, 'job.failed', { error: err?.message || String(err) });
     throw err;
   }
-}, { connection: redis, concurrency: config.jobConcurrency });
+}, { connection: { url: config.redisUrl, maxRetriesPerRequest: null }, concurrency: config.jobConcurrency });
 
 console.log(`[AXO worker] running with concurrency=${config.jobConcurrency}`);
