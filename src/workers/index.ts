@@ -16,6 +16,7 @@ import {
   buildPresenceReportFields,
   type PresenceObservation,
 } from '../presence.js';
+import { ensurePresenceSchema } from '../migrate.js';
 
 requireConfig();
 
@@ -281,6 +282,8 @@ async function persistPresence(
 // ── Main diagnostic pipeline ──────────────────────────────────────────
 
 async function runDiagnostic(jobId: string) {
+  await ensurePresenceSchema(); // create presence tables on first run (idempotent)
+
   const job = await one<any>('select * from axo_jobs where id = $1', [jobId]);
   if (!job) throw new Error(`Job not found: ${jobId}`);
 
