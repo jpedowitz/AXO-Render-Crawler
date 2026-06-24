@@ -1309,7 +1309,7 @@ img { max-width: 100%; }
           <span class="stage-dist__lbl">Queries allocated by stage weakness</span>
           <span class="stage-dist__meta">100 total · weighted inverse to your score · <u>see all</u></span>
         </div>
-        <div class="stage-dist__bar">
+        <div class="stage-dist__bar" id="stageDistBar">
           <div class="stage-dist__seg stage-dist__seg--1" style="width:28%"><span>28</span></div>
           <div class="stage-dist__seg stage-dist__seg--2" style="width:18%"><span>18</span></div>
           <div class="stage-dist__seg stage-dist__seg--3" style="width:25%"><span>25</span></div>
@@ -1360,7 +1360,7 @@ img { max-width: 100%; }
       <p data-n="ch3PersonaGap">Analyzing weakest persona…</p>
 
       <div class="pull">
-        <div class="pull__q">One persona is carrying a <em>31-point drag</em> on the whole AXO score. Closing it is the single highest-leverage move in this report.</div>
+        <div class="pull__q">One persona is carrying a <em id="personaDrag">31-point drag</em> on the whole AXO score. Closing it is the single highest-leverage move in this report.</div>
         <div class="pull__src">Persona variance · Module 03</div>
       </div>
 
@@ -1844,14 +1844,14 @@ function startDiagnostic() {
   $('progress').style.display = 'flex';
   document.body.classList.remove('intake-on');
 
-  // Build static step list — progress driven by real pipeline status
+  // Build static step list — progress driven by real axo-api job status
   const STEPS = [
     { id: 'submit',    label: 'Submitting job' },
-    { id: 'discover',  label: 'Discovering sitemap' },
     { id: 'crawl',     label: 'Crawling pages' },
-    { id: 'score',     label: 'Extracting buyer signals' },
-    { id: 'analyze',   label: 'Querying AI engines' },
-    { id: 'complete',  label: 'Writing the narrative' }
+    { id: 'score',     label: 'Analyzing content signals' },
+    { id: 'competitors', label: 'Scoring competitors' },
+    { id: 'presence',  label: 'Querying AI engines (100 buyer questions)' },
+    { id: 'complete',  label: 'Building your report' }
   ];
   const list = $('progList'); list.innerHTML = '';
   STEPS.forEach((s, i) => {
@@ -2296,20 +2296,31 @@ function startDiagnostic() {
   $('progStatus').textContent = 'Connecting to pipeline…';
 
   runCrawl({ onStage: function(stage, detail) {
-    const stageMap = { queued: 0, discovering: 1, partitioned: 2, crawling: 2, scoring: 3, analysis_pending: 4, analyzing: 4, complete: 5 };
+    // Map real axo-api stages to step indices
+    const stageMap = {
+      queued: 0,
+      crawling: 1,
+      scoring: 2,
+      competitor_discovery: 3,
+      competitor_scoring: 3,
+      presence: 4,
+      reporting: 5,
+      complete: 5
+    };
     const idx = stageMap[stage] !== undefined ? stageMap[stage] : activeStep;
     activeStep = idx;
     setStep(idx, 'active');
 
     // Dynamic title per stage
     const titles = {
-      queued:      'Queueing your crawl job…',
-      discovering: 'Mapping the sitemap…',
-      partitioned: 'Partitioning pages into batches…',
-      crawling:    'Crawling every page…',
-      scoring:     'Scoring buyer signals…',
-      analyzing:   'Running 4-engine AI analysis…',
-      complete:    'Writing your Intelligence Report'
+      queued:               'Queueing your job…',
+      crawling:             'Crawling every page…',
+      scoring:              'Analyzing content signals…',
+      competitor_discovery: 'Identifying competitors…',
+      competitor_scoring:   'Crawling and scoring competitors…',
+      presence:             'Asking 100 buyer questions across Claude, ChatGPT, Perplexity, Gemini…',
+      reporting:            'Building your Intelligence Report…',
+      complete:             'Building your Intelligence Report…'
     };
     const titleEl = $('progTitle');
     if (titleEl && titles[stage]) titleEl.textContent = titles[stage];
@@ -2508,13 +2519,50 @@ function applyReportToG(report) {
     rivalsWinning: []
   }));
 
-  // Persona cards (real) for the M3 section
-  if (pres && pres.personaScores) {
-    G._personaCards = pres.personaScores.map(p => ({
-      persona: p.persona,
-      score: p.score,
-      queries: p.queries
-    }));
+  // 100-page roadmap allocation, weighted inverse to cluster strength.
+  // Weaker clusters earn a larger share. Derived from real strength scores,
+  // normalized to sum to 100. Clusters with no measured strength are excluded.
+  (function allocateRoadmap() {
+    const measured = G.clusters.filter(c => typeof c.strength === 'number');
+    if (!measured.length) return;
+    const weights = measured.map(c => Math.max(1, 100 - c.strength)); // inverse strength
+    const total = weights.reduce((a, b) => a + b, 0);
+    let allocated = 0;
+    measured.forEach((c, i) => {
+      const share = i === measured.length - 1
+        ? (100 - allocated)                          // last cluster absorbs rounding
+        : Math.round((weights[i] / total) * 100);
+      c.roadmapPages = share;
+      allocated += share;
+    });
+  })();
+
+  // Persona cards (real) for the M3 section. Join measured persona scores to
+  // clusters for context/question. Highest score = cited, lowest = routed away.
+  if (pres && pres.personaScores && pres.personaScores.length) {
+    const clusterByName = new Map((report.clusters || []).map(c => [c.name, c]));
+    const findCluster = (pname) => clusterByName.get(pname) ||
+      (report.clusters || []).find(c =>
+        String(c.name).toLowerCase().startsWith(String(pname).toLowerCase().slice(0, 12)));
+    const topScore = pres.personaScores[0] ? pres.personaScores[0].score : 0;
+    G._personaCards = pres.personaScores.map(p => {
+      const cl = findCluster(p.persona) || {};
+      const stages = cl.stages || {};
+      const hot = Object.keys(stages).find(k => stages[k] === 'hot');
+      const stageLabel = { unaware: 'Unaware', aware: 'Problem-aware', compare: 'Comparing solutions', consider: 'Considering vendors', decide: 'Decision-ready' }[hot] || 'Across the journey';
+      const topGap = (cl.gaps && cl.gaps[0] && (cl.gaps[0].ttl || cl.gaps[0])) || null;
+      return {
+        name: p.persona,
+        context: stageLabel + ' · ' + p.queries + ' queries tested',
+        question: topGap ? String(topGap).replace(/^["']|["']$/g, '').substring(0, 110)
+                         : ('What is the best option for ' + p.persona + '?'),
+        score: p.score,
+        cited: p.score >= 70
+      };
+    });
+    // Real persona spread for the chapter pull-quote
+    const sc = pres.personaScores.map(p => p.score);
+    G._personaSpread = sc.length ? (Math.max(...sc) - Math.min(...sc)) : 0;
   }
 
   // Competitors (real, scored) + share of voice
@@ -2717,14 +2765,13 @@ function renderPersonaCards() {
   if (!el) return;
   const cards = G._personaCards;
   if (!cards || !cards.length) return;
-  const scores = [82, 54, 22]; // relative scores for visual display
-  el.innerHTML = cards.map((c, i) => {
-    const cited = i === 0;
-    const score = scores[i] || Math.max(10, 80 - i * 25);
+  el.innerHTML = cards.map((c) => {
+    const cited = c.cited === true;
+    const score = (c.score != null) ? c.score : 0;
     return '<div class="persona-narr">' +
-      '<div class="persona-narr__name">' + c.name + '</div>' +
-      '<div class="persona-narr__ctx">Context: ' + c.context + '</div>' +
-      '<div class="persona-narr__q">' + c.question + '</div>' +
+      '<div class="persona-narr__name">' + (c.name || '') + '</div>' +
+      '<div class="persona-narr__ctx">Context: ' + (c.context || '') + '</div>' +
+      '<div class="persona-narr__q">' + (c.question || '') + '</div>' +
       '<div class="persona-narr__a">' + (cited ? '<strong>AI cites you</strong> for this persona.' : '<strong>AI routes to competitors</strong> for this persona. Content gap identified.') + '</div>' +
       '<div class="persona-narr__score"><span>Persona score</span><span class="persona-narr__score-n">' + score + '</span></div>' +
       '</div>';
@@ -3062,10 +3109,29 @@ function renderAll() {
       ? 'Live AI citation coverage (Perplexity, Gemini).'
       : 'Citation-engine presence.';
   }
-  // Fix pull-quote template holdover
+  // Fix pull-quote template holdover — use a clean domain, not a full URL
+  const cleanSite = String(G.site || '').replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/.*$/, '') || 'this site';
   document.querySelectorAll('.pull__q').forEach(el => {
-    el.innerHTML = el.innerHTML.replace(/\$\{G\.site\}/g, G.site);
+    el.innerHTML = el.innerHTML.replace(/\$\{G\.site\}/g, cleanSite);
   });
+
+  // Persona drag = real spread between strongest and weakest persona score
+  const dragEl = document.getElementById('personaDrag');
+  if (dragEl && typeof G._personaSpread === 'number' && G._personaSpread > 0) {
+    dragEl.textContent = G._personaSpread + '-point drag';
+  }
+
+  // Chapter 02 stage-allocation bar — real per-stage query counts (same source
+  // as the methodology appendix), not the old fabricated 28/18/25/17/12.
+  const sdBar = document.getElementById('stageDistBar');
+  if (sdBar && G.queries && G.queries.length) {
+    const order = ['unaware','aware','compare','consider','decide'];
+    const counts = order.map(s => G.queries.filter(q => q.stage === s).length);
+    const tot = counts.reduce((a,b) => a+b, 0) || 100;
+    sdBar.innerHTML = order.map((s,i) =>
+      `<div class="stage-dist__seg stage-dist__seg--${i+1}" style="width:${Math.round(counts[i]/tot*100)}%"><span>${counts[i]}</span></div>`
+    ).join('');
+  }
 
   renderRail();
   renderM1();
@@ -3352,12 +3418,12 @@ function renderClusters() {
   const allocBar = $('clusterAllocBar');
   const allocLegend = $('clusterAllocLegend');
   if (allocBar) {
-    allocBar.innerHTML = G.clusters.map((c, i) => `
+    allocBar.innerHTML = G.clusters.filter(c => typeof c.roadmapPages === 'number').map((c, i) => `
       <div class="cluster-alloc__seg" data-ci="${i}" style="width:${c.roadmapPages}%;" title="${c.name}: ${c.roadmapPages} pages"><span>${c.roadmapPages}</span></div>
     `).join('');
   }
   if (allocLegend) {
-    allocLegend.innerHTML = G.clusters.map((c, i) => `
+    allocLegend.innerHTML = G.clusters.filter(c => typeof c.roadmapPages === 'number').map((c, i) => `
       <span class="cluster-alloc__lg"><em class="cluster-alloc__dot" data-ci="${i}"></em>${c.name} <strong>&middot; ${c.roadmapPages}</strong></span>
     `).join('');
   }
@@ -3368,7 +3434,7 @@ function renderClusters() {
     <div class="cluster-item" data-i="${i}">
       <div class="cluster-head">
         <div class="cluster-rank">${String(i+1).padStart(2,'0')}</div>
-        <div class="cluster-name">${c.name}<small>${c.pages} pages · ${c.queryMatches} of 100 queries · top persona: ${c.topPersona}</small></div>
+        <div class="cluster-name">${c.name}<small>${c.queryMatches} of 100 queries · top persona: ${c.topPersona}</small></div>
         <div class="cluster-bar"><div class="cluster-bar-track"><div class="cluster-bar-fill" style="width:${c.strength}%; background:${color};"></div></div></div>
         <div class="cluster-score">${c.strength}<em style="font-size:12px;color:var(--axo-ink-4);font-style:normal;font-weight:400;">%</em></div>
         <div class="cluster-caret">›</div>
