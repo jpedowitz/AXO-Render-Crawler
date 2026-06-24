@@ -86,8 +86,11 @@ export function buildQuerySpecs(
   stageScores: Record<string, number>
 ): QuerySpec[] {
   const dn = domain.split('.')[0];
+  // Clean persona labels: the model emits "Role - descriptor"; keep the role,
+  // drop the descriptor and any trailing dash so labels read cleanly.
   const P = (personas.length ? personas : ['buyers', 'decision makers'])
-    .map(p => String(p).split(' ').slice(0, 5).join(' '));
+    .map(p => String(p).split(/\s+[-–—]\s+/)[0].replace(/[-–—\s]+$/, '').trim())
+    .filter(Boolean);
   const comp0 = competitorDomains[0] ? competitorDomains[0].split('.')[0] : 'alternatives';
   const comp1 = competitorDomains[1] ? competitorDomains[1].split('.')[0] : 'in-house';
   const gaps = (intelligence.topContentGaps || []).map(String);
@@ -144,6 +147,11 @@ export function buildQuerySpecs(
   };
 
   const stages = ['unaware', 'aware', 'compare', 'consider', 'decide'];
+  // Unique id prefix per stage. 'consider' uses V so it does not collide with
+  // 'compare' (both start with C).
+  const stagePrefix: Record<string, string> = {
+    unaware: 'U', aware: 'A', compare: 'C', consider: 'V', decide: 'D',
+  };
   const scores = stages.map(s => stageScores[s] ?? 50);
   const invW = scores.map(v => Math.max(5, 100 - v));
   const totalInv = invW.reduce((a, b) => a + b, 0);
@@ -166,7 +174,7 @@ export function buildQuerySpecs(
         let q = pool[j];
         if (seen.has(q)) continue;
         seen.add(q);
-        const id = stage.charAt(0).toUpperCase() + String(made + 1).padStart(2, '0');
+        const id = stagePrefix[stage] + String(made + 1).padStart(2, '0');
         specs.push({ id, stage, persona, q });
         made++;
       }
@@ -174,7 +182,7 @@ export function buildQuerySpecs(
       // safety: if persona pools exhausted before count, append benchmark variants
       if (persIdx > P.length * 6 && made < count) {
         const persona2 = P[made % P.length];
-        const id = stage.charAt(0).toUpperCase() + String(made + 1).padStart(2, '0');
+        const id = stagePrefix[stage] + String(made + 1).padStart(2, '0');
         specs.push({ id, stage, persona: persona2, q: `${banks[stage](persona2)[0].replace('?', '')} in 2026?` });
         made++;
       }
@@ -444,9 +452,25 @@ function rate(obs: PresenceObservation[]): number {
   return Math.round((ok.reduce((s, o) => s + presenceValue(o), 0) / ok.length) * 100);
 }
 
+// Headline AXO score. The product promises live AI visibility, so the headline
+// weights retrieval (live citation) above parametric (training-data salience).
+// This prevents two parametric engines that "know" the brand from masking a
+// retrieval engine that never cites it. If only one mode ran, that mode stands
+// alone. Weights: 65% retrieval / 35% parametric.
+function headlineScore(ok: PresenceObservation[]): number {
+  const para = ok.filter(o => o.mode === 'parametric');
+  const retr = ok.filter(o => o.mode === 'retrieval');
+  const paraRate = para.length ? rate(para) : null;
+  const retrRate = retr.length ? rate(retr) : null;
+  if (paraRate != null && retrRate != null) return Math.round(0.35 * paraRate + 0.65 * retrRate);
+  return (retrRate ?? paraRate ?? 0);
+}
+
 export type PresenceReportFields = {
   // headline + per-engine (real)
-  aeoPresenceScore: number;
+  aeoPresenceScore: number;         // citation-weighted headline
+  knowledgeScore: number;           // parametric engines only (training salience)
+  citationScore: number;            // retrieval engines only (live citation)
   byEngine: Record<string, number>;
   engineModes: Record<string, EngineMode>;
   enginesUsed: string[];
@@ -522,14 +546,19 @@ export function buildPresenceReportFields(
     .sort((a, b) => b.mentions - a.mentions);
 
   const retrievalObs = ok.filter(o => o.mode === 'retrieval');
+  const parametricObs = ok.filter(o => o.mode === 'parametric');
   const brandCitedCount = retrievalObs.filter(o => o.brandCited).length;
   const retrievalCoverage = retrievalObs.length
     ? Math.round((brandCitedCount / retrievalObs.length) * 100) : 0;
 
-  const aeoPresenceScore = rate(ok);
+  const aeoPresenceScore = headlineScore(ok);
+  const knowledgeScore = parametricObs.length ? rate(parametricObs) : 0;
+  const citationScore = retrievalObs.length ? rate(retrievalObs) : 0;
 
   return {
     aeoPresenceScore,
+    knowledgeScore,
+    citationScore,
     byEngine,
     engineModes,
     enginesUsed: engines,
