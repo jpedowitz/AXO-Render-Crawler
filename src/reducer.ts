@@ -82,6 +82,7 @@ ${changed.length ? `Changed pages since last scan:\n${changed.map(p => `- ${p.ti
 
 Return this exact JSON structure with no other text:
 {
+  "companyName": "<the official organization name as a buyer would say it, e.g. 'Kimmeridge Energy' not the bare domain>",
   "aeoReadinessScore": <number 0-100>,
   "rationale": "<2 sentences explaining the score>",
   "quickWins": ["<win1>", "<win2>", "<win3>", "<win4>", "<win5>"],
