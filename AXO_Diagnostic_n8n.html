@@ -1228,7 +1228,7 @@ img { max-width: 100%; }
           <div>
             <div class="exec__stat-n">—<em>%</em></div>
             <div class="exec__stat-lbl" id="statLbl3">Weakest persona</div>
-            <div class="exec__stat-sub">AI cites Forrester and McKinsey. You're absent.</div>
+            <div class="exec__stat-sub" id="execStatSub3">Live AI citation coverage across retrieval engines.</div>
           </div>
         </div>
 
@@ -1262,7 +1262,7 @@ img { max-width: 100%; }
       <p class="chap__lede">AI systems match buyer questions to content using vocabulary overlap. Of the <strong>six canonical terms</strong> enterprise B2B buyers use to describe your category, you cover three well. The rest live in your competitors' content.</p>
 
       <div class="openstat">
-        <div class="openstat__n">62<em>%</em></div>
+        <div class="openstat__n" id="m1Headline">—<em>%</em></div>
         <div>
           <div class="openstat__lbl">Buyer vocabulary coverage</div>
           <div class="openstat__txt"><span data-n="ch1Lede">Analyzing buyer vocabulary coverage…</span></div>
@@ -1416,7 +1416,7 @@ img { max-width: 100%; }
         Each competitor was scored against the same 100 buyer questions across all four LLM engines. Ranking reflects composite citation share, position, and specificity — not SEO volume.
       </aside>
 
-      <p>Forrester's +8 delta on authority queries is not surprising. It's also not the battle to pick. Your asymmetric advantage is <strong>prescriptive implementation content</strong>, which Forrester doesn't publish and the platforms can't credibly publish.</p>
+      <p id="m5CompFraming">Competitors earn AI citations by publishing content that directly answers buyer evaluation questions. The opportunity is answerable content at the stages where buyers compare options.</p>
 
       <div class="pull">
         <div class="pull__q"><span data-n="ch5Pull">Strategic insight loading…</span></div>
@@ -1650,7 +1650,10 @@ img { max-width: 100%; }
    or by editing the defaults below for production.
    ══════════════════════════════════════════════════════════ */
 const AXO_CONFIG = {
-  // n8n pipeline base URL
+  // AXO API base URL — the real TypeScript engine on Render. The diagnostic now
+  // reads the measured report directly from here, bypassing n8n's re-derivation.
+  apiBase: window.AXO_API_BASE || 'https://axo-api.onrender.com',
+  // n8n pipeline base URL (lead relay only; no longer used for results)
   n8nBase: window.AXO_N8N_BASE || 'https://pedowitzgroup.app.n8n.cloud/webhook',
   // Render proxy-server base URL — used for /api/competitor-batch (real crawled competitor scores).
   // Set window.AXO_PROXY_BASE before loading this file to override, or update the default here.
@@ -2231,30 +2234,10 @@ function startDiagnostic() {
       // Restore user inputs — these must survive the server's G object
       if (savedCompetitorsInput) G.competitorsInput = savedCompetitorsInput;
       if (savedPersonasInput)    G.personasInput    = savedPersonasInput;
-      // If user typed competitors, force-rebuild G.competitors so the server list never wins
-      if (savedCompetitorsInput && savedCompetitorsInput.length) {
-        const _norm = s => String(s).toLowerCase().trim().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/.*$/, '');
-        const _name = c => { const r = _norm(c).split('.')[0]; return r.charAt(0).toUpperCase() + r.slice(1); };
-        const _dom  = c => { const s = _norm(c); return s.includes('.') ? s : s + '.com'; };
-        const yourScore = data._aeoScore || G._aeoScore || 34;
-        const userDoms  = savedCompetitorsInput.map(_norm);
-        // Merge: user-specified first, then any server competitors not already in user list
-        const serverComps = (G.competitors || []).filter(c => !userDoms.includes(_norm(c.domain || c.name || '')));
-        // Do not fabricate scores — all competitors (including subject) get real crawl scores.
-        // axo: null triggers "crawling…" placeholder in renderCompetitors.
-        G.competitors = [
-          ...savedCompetitorsInput.map((c) => ({
-            name: _name(c), domain: _dom(c),
-            axo: null, you: false, crawled: false
-          })),
-          ...serverComps.slice(0, Math.max(0, 5 - savedCompetitorsInput.length)).map(c => ({
-            ...c, axo: null, crawled: false
-          })),
-          { name: deriveCompanyName(G.site), domain: G.site, axo: null, you: true, crawled: false }
-        ];
-        if (window.axoLog) axoLog('Competitors rebuilt from user input: ' + savedCompetitorsInput.join(', '), 'ok');
-      }
-      if (window.axoLog) axoLog('G assigned: ' + (data.clusters||[]).length + ' clusters, site=' + G.site + ', score=' + data._aeoScore, 'ok');
+      // Competitors are already real (crawled + scored by the worker, honoring any
+      // user-specified list). The adapter populated G.competitors with real scores —
+      // do not rebuild or null them here.
+      if (window.axoLog) axoLog('G assigned: ' + (G.clusters||[]).length + ' clusters, site=' + G.site + ', score=' + G._aeoScore, 'ok');
       // If n8n didn't return _personaCards, build them from clusters.
       // This is the primary rendering path for M3 — without it personaCards stays empty.
       if ((!G._personaCards || !G._personaCards.length) && G.clusters && G.clusters.length) {
@@ -2300,12 +2283,8 @@ function startDiagnostic() {
       renderNarrative();
       console.log('[AXO] renderAll + renderNarrative OK');
 
-      // Competitor scores arrive pre-scored from the Render worker in G.competitors.
-      // No secondary batch crawl needed — renderCompetitors() above already rendered them.
-      const crawledComps = (G.competitors || []).filter(c => !c.you && c.crawled && c.axo != null);
-      if (crawledComps.length && window.axoLog) {
-        axoLog('Competitor scores loaded from Render: ' + crawledComps.map(c => c.domain + ' (' + c.axo + ')').join(', '), 'ok');
-      }
+      // Competitors are already crawled and scored by the worker and are present
+      // in G.competitors with real scores. No background re-crawl needed.
     }
     catch (e) {
       console.error('[AXO] renderAll threw:', e);
@@ -2364,142 +2343,81 @@ function startDiagnostic() {
    Returns a partial G object (site + intelligence fields).
    Demo data fills in everything the pipeline doesn't produce. */
 async function runCrawl({ onStage } = {}) {
-  const base = AXO_CONFIG.n8nBase;
-  if (!base) throw new Error('No n8n base URL configured');
+  const api = AXO_CONFIG.apiBase;
+  if (!api) throw new Error('No axo-api base URL configured');
   const deadline = Date.now() + AXO_CONFIG.crawlTimeoutMs;
   const notify = (stage, detail) => {
     if (onStage) onStage(stage, detail);
     if (window.axoLog) axoLog((detail || stage), 'info');
   };
 
-  // Step 1 — submit
-  notify('queued', 'Submitting to pipeline…');
+  // Step 1 — submit job to axo-api
+  notify('queued', 'Submitting to AXO engine…');
   let submitRes;
   try {
-    submitRes = await fetch(base + '/tpg-crawl-submit', {
+    submitRes = await fetch(api + '/axo/jobs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-          url:             G.site,
-          limit:           15000,
-          intelligenceMode: true,
-          competitors:     G.competitorsInput  || [],
-          personas:        G.personasInput     || []
-        })
+        url:          G.site,
+        forceRefresh: true,
+        competitors:  G.competitorsInput || [],
+        personas:     G.personasInput || [],
+        metadata:     { source: 'hubspot-axo-page' }
+      })
     });
   } catch (fetchErr) {
-    throw new Error('Failed to fetch: ' + fetchErr.message);
+    throw new Error('Failed to reach AXO engine: ' + fetchErr.message);
   }
   if (!submitRes.ok) throw new Error('Submit HTTP ' + submitRes.status);
   const submitData = await submitRes.json();
   const jobId = submitData.jobId;
   if (!jobId) throw new Error('No jobId returned from submit');
-  // Store at module level so .then() block outside runCrawl can access it
   window._axoCurrentJobId = jobId;
   console.log('[AXO] Job submitted:', jobId);
   if (window.axoLog) axoLog('✓ Job submitted: ' + jobId, 'ok');
   notify('queued', 'Job queued: ' + jobId);
 
-  // WF1 fires WF2 (Render crawler bridge) internally — no separate discovery call needed
-  if (window.axoLog) axoLog('Crawler started via WF1…', 'info');
+  // Human-readable stage labels for the progress UI
+  const stageLabel = {
+    queued: 'Queued…',
+    crawling: 'Crawling site pages…',
+    scoring: 'Analyzing content signals…',
+    competitor_discovery: 'Identifying competitors…',
+    competitor_scoring: 'Scoring competitors…',
+    presence: 'Querying AI engines with buyer questions…',
+    reporting: 'Building your report…',
+    complete: 'Complete'
+  };
 
-  // Step 2 — poll (retries on transient failures, only hard-fails on timeout)
+  // Step 2 — poll status until complete
   const poll = () => new Promise((resolve, reject) => {
     let consecutiveErrors = 0;
     const check = async () => {
-      if (Date.now() > deadline) return reject(new Error('Pipeline timeout'));
+      if (Date.now() > deadline) return reject(new Error('Diagnostic timeout'));
       try {
-        const r = await fetch(base + '/tpg-crawl-status?jobId=' + jobId);
-        if (!r.ok) { throw new Error('Status HTTP ' + r.status); }
+        const r = await fetch(api + '/axo/jobs/' + jobId + '/status');
+        if (!r.ok) throw new Error('Status HTTP ' + r.status);
         const s = await r.json();
-        consecutiveErrors = 0; // reset on success
-        console.log('[AXO] Status:', s.stage, s.progress);
-        const prog = s.progress || {};
-        const pagesFound = prog.pagesFound || 0;
-        const pagesProcessed = prog.pagesProcessed || 0;
+        consecutiveErrors = 0;
+        const stage = s.stage || s.status || 'queued';
+        console.log('[AXO] Status:', s.status, stage);
+        notify(stage, stageLabel[stage] || stage);
 
-        // Start facts on first partitioned/crawling with pages found, or immediately if big site
-        if ((s.stage === 'crawling' || s.stage === 'partitioned') && !factInterval) {
-          // Show facts immediately on partitioned — big site indicator
-          if (s.stage === 'partitioned') {
-            startCrawlFacts(pagesFound || 0);
-          } else if (pagesFound > 0) {
-            startCrawlFacts(pagesFound);
-          }
+        if (s.status === 'failed' || stage === 'failed') {
+          return reject(new Error(s.error || 'Diagnostic failed — check worker logs'));
         }
-        // Update progress bar during crawl — use Render crawler fields when available
-        if (s.stage === 'crawling') {
-          const crawlerFetched = s.crawlerPagesFetched || pagesProcessed;
-          const crawlerFound = s.crawlerUrlsFound || pagesFound;
-          updateCrawlProgress(crawlerFetched, crawlerFound);
-          const elapsed = s.crawlerElapsedSeconds ? ' · ' + Math.round(s.crawlerElapsedSeconds) + 's' : '';
-          const progEl = document.getElementById('crawlProgressDetail');
-          if (progEl && crawlerFound > 0) {
-            const pct = Math.round((crawlerFetched / crawlerFound) * 100);
-            const bar = '█'.repeat(Math.min(10, Math.round(pct/10))) + '░'.repeat(Math.max(0, 10-Math.round(pct/10)));
-            progEl.innerHTML = '<span style="font-family:monospace;font-size:11px;color:rgba(255,255,255,0.3)">' + bar + '</span> ' +
-              crawlerFetched.toLocaleString() + ' / ' + crawlerFound.toLocaleString() + ' pages' + elapsed;
-          }
-        }
-
-        const crawlerFetched = s.crawlerPagesFetched || pagesProcessed;
-        const crawlerFound = s.crawlerUrlsFound || pagesFound;
-        const detail = (s.crawlerStatus === 'discovering' || s.stage === 'crawling' && crawlerFound === 0)
-          ? 'Discovering sitemap…'
-          : (s.stage === 'crawling' || s.crawlerStatus === 'content_crawling')
-          ? 'Crawling pages… (' + crawlerFetched.toLocaleString() + '/' + (crawlerFound > 0 ? crawlerFound.toLocaleString() : '?') + ')'
-          : s.stage === 'analyzing' ? 'Querying AI engines, analyzing buyer signals…'
-          : s.stage === 'analysis_pending' ? 'Crawl ready — AI analysis starting…'
-          : s.stage === 'complete' ? 'Building your report…'
-          : null;
-        notify(s.stage, detail);
-        // Guard: only resolve on genuinely fresh completions
-        if (s.readyForResults && s.intelligenceComplete) {
-          const genAt = s.intelligenceGeneratedAt ? new Date(s.intelligenceGeneratedAt).getTime() : 0;
-          const jobCreatedAt = s.createdAt ? new Date(s.createdAt).getTime() : 0;
-          const ageMs = Date.now() - genAt;
-          const isForThisJob = genAt > jobCreatedAt;
-          const pagesFetched = s.crawlerPagesFetched || 0;
-          const crawlComplete = s.status === 'complete' && pagesFetched >= 5;
-          if (ageMs < 600000 && isForThisJob && crawlComplete) {
-            if (window.axoLog) axoLog('✓ Ready: ' + pagesFetched + ' pages, age ' + Math.round(ageMs/1000) + 's', 'ok');
-            return resolve(s);
-          } else if (!isForThisJob) {
-            if (window.axoLog) axoLog('Intelligence predates this job — waiting…', 'info');
-          } else if (!crawlComplete) {
-            if (window.axoLog) axoLog('Waiting: ' + pagesFetched + ' pages, status=' + s.status, 'info');
-          } else {
-            if (window.axoLog) axoLog('Stale result (age ' + Math.round(ageMs/60000) + 'min)', 'info');
-          }
-        }
-        if (s.status === 'error') return reject(new Error('Pipeline error: ' + s.stage));
-        // Watchdog-marked failures — surface the specific reason
-        // BUT: if intelligenceComplete is true, the pipeline succeeded despite a stale error field
-        if ((s.status === 'failed' || s.stage === 'failed') && !s.intelligenceComplete) {
-          const reason = s.failReason || 'Job failed — check n8n execution logs';
-          return reject(new Error(reason));
-        }
-        // Stale queued detector
-        if (s.stage === 'queued' && s.progress && s.progress.pagesFound === 0) {
-          const age = Date.now() - new Date(s.createdAt).getTime();
-          if (age > 600000) return reject(new Error('Site blocked crawl or has no discoverable pages. Check the domain and try again.'));
-        }
-        // Analyzing watchdog — WF4 Claude call can silently fail; if updatedAt hasn't moved in 8min, give up
-        if (s.stage === 'analyzing' && s.updatedAt) {
-          const analyzeStale = Date.now() - new Date(s.updatedAt).getTime();
-          if (analyzeStale > 900000) return reject(new Error('AI analysis timed out after 15 min — try again in a moment.'));
-          if (window.axoLog && analyzeStale > 60000 && analyzeStale % 60000 < 6000) {
-            axoLog('Still analyzing… (' + Math.round(analyzeStale/60000) + 'min elapsed)', 'info');
-          }
+        if (s.status === 'complete' || stage === 'complete' || s.readyForResults) {
+          if (window.axoLog) axoLog('✓ Complete', 'ok');
+          return resolve(s);
         }
         setTimeout(check, AXO_CONFIG.pollIntervalMs);
       } catch (e) {
         consecutiveErrors++;
         console.warn('[AXO] Poll error #' + consecutiveErrors + ':', e.message);
         if (window.axoLog) axoLog('Poll retry ' + consecutiveErrors + ': ' + e.message, 'info');
-        // Give up only after 5 consecutive failures
         if (consecutiveErrors >= 5) return reject(e);
-        setTimeout(check, AXO_CONFIG.pollIntervalMs * 2); // back off on error
+        setTimeout(check, AXO_CONFIG.pollIntervalMs * 2);
       }
     };
     check();
@@ -2507,25 +2425,122 @@ async function runCrawl({ onStage } = {}) {
 
   await poll();
 
-  // Step 3 — fetch slim results wrapper from n8n, unwrap G object
-  const resultsRes = await fetch(base + '/tpg-crawl-results?jobId=' + jobId + '&format=g-report');
+  // Step 3 — fetch the real, measured report from axo-api
+  const resultsRes = await fetch(api + '/axo/jobs/' + jobId + '/results');
   if (!resultsRes.ok) throw new Error('Results HTTP ' + resultsRes.status);
-  const resultsText = await resultsRes.text();
-  if (!resultsText || !resultsText.trim()) throw new Error('Empty results response from pipeline');
-  let resultsData;
-  try { resultsData = JSON.parse(resultsText); }
-  catch(e) { console.error('[AXO] Results parse failed, raw:', resultsText.slice(0, 1000)); throw new Error('Results JSON parse failed: ' + e.message); }
-  if (resultsData && !resultsData.success) throw new Error(resultsData.error || 'Results returned error');
-  // WF5 v8 returns {success, jobId, status, readyForResults, intelligenceComplete, generatedAt, G}
-  // Fall back to bare gReport shape for backward compat
-  const gReport = (resultsData && resultsData.G) ? resultsData.G : resultsData;
-  console.log('[AXO] G-report received:', Object.keys(gReport || {}).join(', '));
-  if (window.axoLog) axoLog('✓ G-report: clusters=' + (gReport.clusters||[]).length + ' score=' + gReport._aeoScore, 'ok');
-  if (!gReport.clusters || !gReport.clusters.length) {
-    throw new Error('Report data missing — pipeline may still be running');
+  const resultsData = await resultsRes.json();
+  if (!resultsData || !resultsData.result || !resultsData.result.report) {
+    throw new Error('Report missing from results — job may still be finishing');
   }
-  // Return the G-report — showReport does Object.assign(G, gReport)
-  return gReport;
+  const report = resultsData.result.report;
+  console.log('[AXO] Report received. presenceMeasured=', report.axoSnapshot && report.axoSnapshot.presenceMeasured);
+  if (window.axoLog) axoLog('✓ Report: score=' + (report.axoSnapshot && report.axoSnapshot.aeoReadinessScore) + ' measured=' + (report.axoSnapshot && report.axoSnapshot.presenceMeasured), 'ok');
+
+  // Map the real report into the G shape the renderers consume. No fabrication.
+  applyReportToG(report);
+  return G;
+}
+
+/* ── Adapter: real axo-api report → G object ─────────────────────────────
+   Maps every field the renderers read from the MEASURED report. Replaces the
+   old rebuildGFromIntelligence, which fabricated these values. Anything not
+   measured is left null so renderers can show "not measured" rather than a
+   made-up number. */
+function applyReportToG(report) {
+  const snap   = report.axoSnapshot || {};
+  const intel  = report.intelligence || {};
+  const pres   = report.presence || null;
+
+  // Headline + engines (real)
+  G._aeoScore   = snap.aeoReadinessScore != null ? snap.aeoReadinessScore : null;
+  G._byEngine   = (pres && pres.byEngine) || snap.aeoScoreByEngine || {};
+  G._engineModes= (pres && pres.engineModes) || snap.engineModes || {};
+  G._enginesUsed= snap.enginesUsed || Object.keys(G._byEngine);
+  G._knowledgeScore = pres ? pres.knowledgeScore : null;
+  G._citationScore  = pres ? pres.citationScore : null;
+  G._retrievalCoverage = pres ? pres.retrievalCoverage : null;
+
+  // Stage presence (real) — renderAll prefers G._stageScores when present
+  G._stageScores = report.stagePresence || (pres && pres.stagePresence) || null;
+
+  // Company / context
+  G.companyName = intel.companyName || G.companyName || '';
+  G._companySummary = intel.companySummary || '';
+  G._quickWins = intel.quickWins || [];
+  G._buyerJourneyGaps = intel.buyerJourneyGaps || {};
+  G._totalPagesCrawled = snap.pagesFetched || snap.crawlPageCount || 0;
+  G._generatedAt = report.generatedAt || null;
+  G._crawlConfidence = snap.crawlConfidence || null;
+
+  // Vocabulary (real coverage from crawl signals) → m1_terms {term, coverage}
+  const vocab = report.vocabulary || {};
+  G._vocabHeadline = vocab.headlinePct != null ? vocab.headlinePct : null;
+  G.m1_terms = (vocab.terms || []).map(t => ({ term: t.term, coverage: t.coveragePct }));
+
+  // Content format mix (real, from typeDistribution + signals)
+  G._contentFormatMix = report.contentFormatMix || [];
+
+  // Real citation counts per brand URL → used for "top cited pages"
+  G._citationCounts = (pres && pres.citationCounts) || report.citationCounts || [];
+
+  // Clusters (real strength + query counts from measured personas)
+  const cites = G._citationCounts;
+  G.clusters = (report.clusters || []).map(c => ({
+    name: c.name,
+    fullName: c.name,
+    strength: c.strength,            // real persona score (null if unmeasured)
+    queryMatches: c.queryMatches,    // real query count (null if unmeasured)
+    topPersona: String(c.name).split(' ').slice(0, 3).join(' '),
+    stages: c.stages || {},
+    gaps: (c.gaps || []).map(g => ({ ttl: g.ttl || g })),
+    // real per-engine rates for this persona, if measured
+    llm: (pres && (pres.engineByPersona || []).find(p =>
+            p.persona === c.name ||
+            String(c.name).toLowerCase().startsWith(p.persona.toLowerCase().slice(0,12))
+          )) ? (pres.engineByPersona.find(p =>
+            p.persona === c.name ||
+            String(c.name).toLowerCase().startsWith(p.persona.toLowerCase().slice(0,12))
+          ).byEngine) : G._byEngine,
+    // top cited pages for this cluster — real citation counts
+    topPages: cites.slice(0, 5).map(cc => ({ url: cc.url, cites: cc.citations })),
+    roadmapPages: null,
+    rivals: (report.competitorShareOfVoice || []).map(c2 => c2.name).slice(0, 4),
+    rivalsWinning: []
+  }));
+
+  // Persona cards (real) for the M3 section
+  if (pres && pres.personaScores) {
+    G._personaCards = pres.personaScores.map(p => ({
+      persona: p.persona,
+      score: p.score,
+      queries: p.queries
+    }));
+  }
+
+  // Competitors (real, scored) + share of voice
+  G._shareOfVoice = report.competitorShareOfVoice || [];
+  const comps = (report.competitors || []).filter(c => c.domain && c.score != null);
+  G.competitors = [
+    { name: deriveCompanyName(G.site) || (report.domain || 'You'),
+      domain: report.domain || G.site, axo: G._aeoScore, you: true, crawled: true }
+  ].concat(comps.map(c => ({
+    name: String(c.domain).split('.')[0].replace(/^./, m => m.toUpperCase()),
+    domain: c.domain, axo: c.score, you: false, crawled: true,
+    pages: c.pagesFetched || 0, confidence: c.crawlConfidence || null
+  })));
+  // Sort by score desc so rank is meaningful
+  G.competitors.sort((a, b) => (b.axo || 0) - (a.axo || 0));
+  G.cmpDeep = G.competitors.map(c => ({
+    ...c,
+    pages: c.you ? G._totalPagesCrawled : (c.pages || 0),
+    delta: (c.axo != null && G._aeoScore != null) ? c.axo - G._aeoScore : null
+  }));
+
+  // Real query audit for the appendix (engines that actually ran)
+  G._queryAudit = report.queryAudit || [];
+  G.queries = (report.queries || []).map(q => ({ ...q,
+    engines: G._enginesUsed
+  }));
 }
 
 /* ── Real competitor crawl & score ──────────────────────────
@@ -3031,15 +3046,21 @@ function renderAll() {
     const target = Math.min(99, Math.round(G._aeoScore + 11));
     recsTitle.textContent = 'Three actions that move the score from ' + G._aeoScore + ' → ' + target;
   }
-  // Update exec stats (Decide, Compare, CFO persona)
+  // Update exec stats from REAL measured data: Decide-stage presence, Compare-stage
+  // presence, and live citation coverage. No score multipliers.
   const execStats = document.querySelectorAll('.exec__stat-n');
-  if (execStats.length >= 3 && G._aeoScore !== undefined) {
-    const decidePct = Math.min(95, Math.round(G._aeoScore * 1.15));
-    const comparePct = Math.max(15, Math.round(G._aeoScore * 0.65));
-    const cfoPct = Math.max(8, Math.round(G._aeoScore * 0.30));
-    execStats[0].textContent = decidePct + '%';
-    execStats[1].textContent = comparePct + '%';
-    execStats[2].textContent = cfoPct + '%';
+  if (execStats.length >= 3) {
+    const sp = G._stageScores || {};
+    const decidePct  = sp.decide  != null ? sp.decide  : (G._aeoScore || 0);
+    const comparePct = sp.compare != null ? sp.compare : (G._aeoScore || 0);
+    const citePct    = G._retrievalCoverage != null ? G._retrievalCoverage : (G._citationScore != null ? G._citationScore : 0);
+    execStats[0].innerHTML = decidePct + '<em>%</em>';
+    execStats[1].innerHTML = comparePct + '<em>%</em>';
+    execStats[2].innerHTML = citePct + '<em>%</em>';
+    const sub3 = document.getElementById('execStatSub3');
+    if (sub3) sub3.textContent = G._retrievalCoverage != null
+      ? 'Live AI citation coverage (Perplexity, Gemini).'
+      : 'Citation-engine presence.';
   }
   // Fix pull-quote template holdover
   document.querySelectorAll('.pull__q').forEach(el => {
@@ -3048,6 +3069,14 @@ function renderAll() {
 
   renderRail();
   renderM1();
+  // Real competitive framing from measured share of voice
+  const cf = document.getElementById('m5CompFraming');
+  if (cf && G._shareOfVoice && G._shareOfVoice.length) {
+    const top = G._shareOfVoice[0];
+    cf.innerHTML = 'When buyers ask comparison questions, AI engines most often name <strong>'
+      + top.name + '</strong> as the alternative (' + top.sharePct + '% of competitor mentions). '
+      + 'The opportunity is answerable, named-comparison content at the stages where buyers evaluate options.';
+  }
   renderLLM();
   renderClusters();
   renderNarrative();
@@ -3070,6 +3099,17 @@ function renderRail() {
 }
 
 function renderM1() {
+  // Real vocabulary headline = mean coverage across the six canonical terms.
+  const hEl = document.getElementById('m1Headline');
+  if (hEl && G._vocabHeadline != null) hEl.innerHTML = G._vocabHeadline + '<em>%</em>';
+  // Update the lede count of "covered well" terms (coverage >= 50)
+  const strong = (G.m1_terms || []).filter(t => (t.coverage || 0) >= 50).length;
+  const ledeEl = document.querySelector('#c-m1 .chap__lede');
+  if (ledeEl && G.m1_terms && G.m1_terms.length) {
+    ledeEl.innerHTML = 'AI systems match buyer questions to content using vocabulary overlap. Of the <strong>'
+      + G.m1_terms.length + ' canonical terms</strong> enterprise buyers use to describe your category, you cover '
+      + strong + ' well. The rest live in your competitors\' content.';
+  }
   $('m1Bars').innerHTML = G.m1_terms.map(t => `
     <div class="bar-row">
       <div class="bar-hd"><span class="bar-lbl">${t.term}</span><span class="bar-n">${t.coverage}%</span></div>
@@ -3377,44 +3417,29 @@ function renderClusters() {
           <div class="cbody-sect">
             <div class="cbody-sect__lbl">Content format mix</div>
             ${(() => {
-              // Synthetic format distribution derived from cluster signals
-              const s = c.strength;
-              const formats = [
-                { k: 'Explainer / pillar', v: Math.round(40 + (s-50)*0.2) },
-                { k: 'Case study', v: Math.round(18 + (s>=70?10:0)) },
-                { k: 'Named comparison', v: c.rivalsWinning.length ? 4 : (s>=70 ? 14 : 8) },
-                { k: 'Interactive tool', v: s>=80 ? 8 : 2 },
-                { k: 'Other (blog, press)', v: 0 }
-              ];
-              const sum = formats.reduce((a,b)=>a+b.v,0);
-              formats[4].v = Math.max(4, 100 - sum);
-              const total = formats.reduce((a,b)=>a+b.v,0);
-              return formats.map(f => `
+              // Real content format mix from the crawl (typeDistribution + signals).
+              // This is a site-wide measurement, shown on each cluster for context.
+              const fmt = (G._contentFormatMix || []);
+              if (!fmt.length) return '<span style="font-size:12px;color:var(--axo-ink-4);">Format mix not available for this crawl.</span>';
+              return fmt.map(f => `
                 <div class="cbody-fmt">
-                  <span class="cbody-fmt-k">${f.k}</span>
-                  <div class="cbody-fmt-bar"><div class="cbody-fmt-bar__f" style="width:${(f.v/total)*100}%"></div></div>
-                  <span class="cbody-fmt-v">${Math.round((f.v/total)*100)}%</span>
+                  <span class="cbody-fmt-k">${f.format}</span>
+                  <div class="cbody-fmt-bar"><div class="cbody-fmt-bar__f" style="width:${f.pct}%"></div></div>
+                  <span class="cbody-fmt-v">${f.pct}%</span>
                 </div>`).join('');
             })()}
             ${c.rivalsWinning.length ? `<div style="font-size:10px;color:#C54A1F;margin-top:8px;font-family:var(--font-mono);">⚠ Named-comparison share is thin relative to competitor coverage.</div>` : ''}
           </div>
 
           <div class="cbody-sect" style="grid-column: 1 / -1;">
-            <div class="cbody-sect__lbl">New-page roadmap for this cluster <span class="cbody-sect__chip">${c.roadmapPages} of 100 pages</span></div>
-            <p class="cbody-roadmap-intro">This cluster's share of the 100-page roadmap. Weaker clusters get a larger allocation &mdash; your AXO lifts fastest where authority is thinnest. Top items are the highest-impact plays, sequenced by projected lift.</p>
+            <div class="cbody-sect__lbl">Content opportunities for this persona</div>
+            <p class="cbody-roadmap-intro">Content gaps surfaced for this persona during the diagnostic. Each is drawn from the measured crawl and AI-presence analysis, not a fixed template.</p>
             <div class="cbody-gap-grid">
-            ${(c.fullRoadmap || c.gaps).map((g, gi) => `
-              <div class="cbody-gap2${g.generated ? ' cbody-gap2--gen' : ''}">
+            ${(c.gaps || []).map((g, gi) => `
+              <div class="cbody-gap2">
                 <div class="cbody-gap2__hd">
                   <span class="cbody-gap2__n">${String(gi+1).padStart(2,'0')}</span>
                   <span class="cbody-gap2__ttl">${g.ttl}</span>
-                  <span class="cbody-gap2__imp">${g.impact} pts</span>
-                </div>
-                ${g.q ? `<div class="cbody-gap2__q"><span class="cbody-gap2__qlbl">Answers</span>${g.q}</div>` : ''}
-                ${g.why ? `<div class="cbody-gap2__why">${g.why}</div>` : ''}
-                <div class="cbody-gap2__meta">
-                  ${g.format ? `<span class="cbody-gap2__chip">${g.format}</span>` : ''}
-                  ${g.weeks ? `<span class="cbody-gap2__chip cbody-gap2__chip--t">&#9201; ${g.weeks}w</span>` : ''}
                 </div>
               </div>
             `).join('')}
@@ -3456,16 +3481,10 @@ function renderCompetitors() {
   $('cmpList').innerHTML = G.competitors.map((c, i) => {
     const scoreDisplay = c.axo != null ? c.axo : (c.success === false ? '<span style="font-size:11px;color:var(--axo-ink-4)">blocked</span>' : '<span style="font-size:11px;color:var(--axo-ink-4)">…</span>');
     const barWidth = c.axo != null ? (c.axo / max) * 100 : 0;
-    const crawlNote = c.you
-      ? (c.pages_crawled || 0) > 0 ? '<span style="font-size:10px;color:var(--axo-ink-4);margin-left:6px;">' + (c.pages_crawled || 0).toLocaleString() + ' pages</span>' : ''
-      : c.crawled && (c.pages_crawled || 0) > 0
-        ? '<span style="font-size:10px;color:var(--axo-ink-4);margin-left:6px;">' + (c.pages_crawled || 0).toLocaleString() + ' pages</span>'
-        : c.crawled && (c.pages_crawled || 0) === 0
-          ? '<span style="font-size:10px;color:#C54A1F;margin-left:6px;">blocked · score estimated</span>'
-          : '';
+    const crawledNote = c.crawled && c.pages_crawled ? '<span style="font-size:10px;color:var(--axo-ink-4);margin-left:6px;">' + c.pages_crawled.toLocaleString() + ' pages</span>' : '';
     return `<div class="cmp-row">
       <div class="cmp-rank">${c.you ? '★' : String(i+1).padStart(2,'0')}</div>
-      <div class="cmp-name">${c.name}${crawlNote}<small>${c.domain}${c.you ? ' · you' : ''}</small></div>
+      <div class="cmp-name">${c.name}${crawledNote}<small>${c.domain}${c.you ? ' · you' : ''}</small></div>
       <div class="cmp-bar"><div class="cmp-bar-track"><div class="cmp-bar-fill ${c.you ? 'cmp-bar-fill--you' : ''}" style="width:${barWidth}%"></div></div></div>
       <div class="cmp-score">${scoreDisplay}</div>
     </div>`;
