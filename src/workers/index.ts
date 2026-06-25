@@ -13,6 +13,8 @@ import {
   buildQuerySpecs,
   measurePresence,
   buildPresenceReportFields,
+  computeVisibility,
+  vocabularyHeadline,
   type PresenceObservation,
 } from '../presence.js';
 import { ensurePresenceSchema } from '../migrate.js';
@@ -95,21 +97,22 @@ Return ONLY a valid JSON array with exactly this shape, nothing else:
   }
 }
 
-// ── Score a single competitor site ────────────────────────────────────
-// Competitors use the same method as the subject (LLM panel via runLLMPanel),
-// with deterministicScore as a hard fallback if the LLM call fails.
+// ── Crawl a single competitor site (scoring deferred) ─────────────────
+// Crawls the competitor and returns its corpus signals (vocabulary coverage,
+// corpus health). The FINAL score is computed later in the unified pass via the
+// SAME computeVisibility() the subject uses, fed by that competitor's real
+// live-citation rate from the shared presence observations. One ruler for all.
 //
 // FLOOR FIX: a crawl too thin to mean anything returns score=null instead of a
 // confident-looking number. report.ts filters null scores out of the chart, so
-// a 1-page crawl no longer surfaces as "45". This kills the fabricated
-// competitor numbers (Quantum/NGP 45 off 1 page, Riverstone "estimated 18").
+// a 1-page crawl no longer surfaces as "45".
 
 const COMPETITOR_MIN_PAGES = 5;
 
 async function scoreCompetitorSite(
   compDomain: string,
   competitorLimit: number
-): Promise<{ score: number | null; pagesFetched: number; avgAeoSignal: number; method: string }> {
+): Promise<{ score: number | null; pagesFetched: number; avgAeoSignal: number; method: string; vocab: number; corpus: number }> {
 
   const compPages = await crawlSite({
     startUrl: `https://${compDomain}`,
@@ -131,25 +134,26 @@ async function scoreCompetitorSite(
       pagesFetched: compSummary.pagesFetched,
       avgAeoSignal: compSummary.avgAeoSignal,
       method: 'insufficient',
+      vocab: 0,
+      corpus: 0,
     };
   }
 
-  let score: number;
-  let method: string;
+  // Return the crawl-based corpus signals only. The FINAL competitor score is
+  // computed AFTER presence runs, via the SAME computeVisibility() the subject
+  // uses, so every site sits on one ruler. No blendScores here — that was the
+  // inflated path that let a 16-page site outrank a 250-page one.
+  const vocab = vocabularyHeadline(compSummary);
+  const corpus = deterministicScore(compSummary);
 
-  try {
-    const compPrompt = buildCompactPrompt(compDomain, compSummary);
-    const compPanel = await runLLMPanel(compPrompt);
-    const compBlended = blendScores(compSummary, compPanel);
-    score = compBlended.score;
-    method = 'llm';
-  } catch (llmErr: any) {
-    console.warn(`[competitor] LLM scoring failed for ${compDomain}, using deterministicScore: ${llmErr?.message}`);
-    score = deterministicScore(compSummary);
-    method = 'deterministic';
-  }
-
-  return { score, pagesFetched: compSummary.pagesFetched, avgAeoSignal: compSummary.avgAeoSignal, method };
+  return {
+    score: null,             // provisional; set in the unified scoring pass
+    pagesFetched: compSummary.pagesFetched,
+    avgAeoSignal: compSummary.avgAeoSignal,
+    method: 'pending_presence',
+    vocab,
+    corpus,
+  };
 }
 
 // ── Page cache annotation ─────────────────────────────────────────────
@@ -397,7 +401,7 @@ async function runDiagnostic(jobId: string) {
                result.score == null ? 'insufficient' : 'complete']
             );
 
-            console.log(`[competitor] ${compDomain}: score=${result.score}, pages=${result.pagesFetched}, method=${result.method}, confidence=${crawlConfidence}`);
+            console.log(`[competitor] ${compDomain}: crawled pages=${result.pagesFetched}, vocab=${result.vocab}, corpus=${result.corpus} (scoring deferred to presence)`);
             return {
               domain: compDomain,
               score: result.score,
@@ -405,6 +409,8 @@ async function runDiagnostic(jobId: string) {
               avgAeoSignal: result.avgAeoSignal,
               scoringMethod: result.method,
               crawlConfidence,
+              vocab: result.vocab,
+              corpus: result.corpus,
             };
           } catch (err: any) {
             console.warn(`[competitor] ${compDomain} failed: ${err?.message}`);
@@ -475,6 +481,50 @@ async function runDiagnostic(jobId: string) {
       observations: presence.totalObservations,
       retrievalCoverage: presence.retrievalCoverage,
     });
+  }
+
+  // ── Phase 4.6: UNIFIED competitor scoring ─────────────────────────
+  // Score every competitor with the SAME computeVisibility() the subject uses,
+  // so the competitive map is one ruler. Each competitor's live citation rate
+  // comes from the SAME presence observations we already ran (how often a
+  // retrieval engine cited that competitor's domain) — zero extra engine calls.
+  // Inputs per competitor: liveCitationRate (from observations) + vocabulary +
+  // corpus health (from that competitor's own crawl). Identical formula, gates,
+  // and weights as the subject. A thin competitor can no longer outrank a deep
+  // one on inflated LLM averages.
+  if (observations.length) {
+    const retrievalObs = observations.filter(o => o.ok && o.mode === 'retrieval');
+    const hostMatch = (domain: string) => {
+      const root = domain.split('.')[0];
+      return (o: PresenceObservation) => o.citedUrls.some(u => {
+        let h = '';
+        try { h = new URL(u).hostname.replace(/^www\./, '').toLowerCase(); }
+        catch { h = String(u).toLowerCase(); }
+        return h === domain || h.endsWith('.' + domain) || h.includes(root);
+      });
+    };
+    for (const c of competitorSummaries) {
+      if (!c.domain || c.domain === 'unknown') continue;
+      if (c.corpus == null) continue; // crawl was insufficient → leave score null
+      const cited = retrievalObs.filter(hostMatch(c.domain)).length;
+      const compCitationRate = retrievalObs.length ? Math.round((cited / retrievalObs.length) * 100) : 0;
+      c.liveCitationRate = compCitationRate;
+      c.score = computeVisibility({
+        liveCitationRate: compCitationRate,
+        vocabularyCoverage: c.vocab || 0,
+        corpusHealth: c.corpus || 0,
+        retrievalRan: retrievalObs.length > 0,
+      });
+      c.scoringMethod = 'visibility';
+      try {
+        await query(
+          `update axo_competitors set score=$3, status='complete', completed_at=now()
+           where job_id=$1 and domain=$2`,
+          [jobId, c.domain, c.score]
+        );
+      } catch { /* best-effort persist */ }
+      console.log(`[competitor] ${c.domain}: visibility=${c.score} (cite=${compCitationRate}, vocab=${c.vocab}, corpus=${c.corpus})`);
+    }
   }
 
   // ── Phase 5: Build and store report ──────────────────────────────
