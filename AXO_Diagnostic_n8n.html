@@ -1340,7 +1340,7 @@ img { max-width: 100%; }
       <p data-n="ch2CompareGap">Analyzing Compare stage gap…</p>
 
       <div class="pull">
-        <div class="pull__q">"The Compare stage is where the <em>sale is made</em>. It's also where ${G.site} is least present."</div>
+        <div class="pull__q" id="ch2PullQuote">"The Compare stage is where the <em>sale is made</em>. It's also where ${G.site} is least present."</div>
         <div class="pull__src">Synthesis · Chapters 02 + 05</div>
       </div>
 
@@ -2956,15 +2956,10 @@ function renderNarrative() {
     }
   }
 
-  // Update exec stat labels with real persona/stage names
+  // Third exec stat is the live citation rate — label it as such (it previously
+  // showed a persona name over a citation value, which read as a mismatch).
   const statLbl3 = document.getElementById('statLbl3');
-  if (statLbl3 && G._personaCards && G._personaCards.length >= 2) {
-    const weakest = G._personaCards[G._personaCards.length - 1];
-    const words = (weakest.name || 'Weakest persona').split(' ');
-    let w = words.slice(0, 3);
-    while (w.length > 1 && /^(or|and|for|with|at|a|the|in|of)$/i.test(w[w.length - 1])) w.pop();
-    statLbl3.textContent = w.join(' ');
-  }
+  if (statLbl3) statLbl3.textContent = 'Live AI citation';
 
   // Update ch5 competitive title from real competitor data
   const ch5Title = document.getElementById('ch5Title');
@@ -3099,36 +3094,12 @@ function renderAll() {
     };
     }
 
-    // Override stage pcts from Claude's buyerJourneyGaps if available
-    const bjg = (G._narrative && G._narrative.bjg) || {};
-    // Use intel if available on G
-    const intelBjg = G._buyerJourneyGaps || null;
-    if (intelBjg) {
-      // Parse strength signals from Claude's journey gap text
-      const scoreStage = (text) => {
-        if (!text) return 50;
-        const t = text.toLowerCase();
-        const badWords = ['missing','absent','gap','weak','fail','no page','not appear','cannot','doesn\'t','does not','poor','limited','lacks'];
-        const goodWords = ['strong','well','good','cited','appears','ranks','effective','present'];
-        let score = 50;
-        badWords.forEach(w => { if (t.includes(w)) score -= 12; });
-        goodWords.forEach(w => { if (t.includes(w)) score += 10; });
-        return Math.max(10, Math.min(90, score));
-      };
-      const awarenessScore = scoreStage(intelBjg.awareness || '');
-      const considerScore  = scoreStage(intelBjg.consideration || intelBjg.consider || '');
-      const decideScore    = scoreStage(intelBjg.decision || intelBjg.decide || '');
-      // Compare is typically weakest — use consideration text minus penalty
-      const compareText    = intelBjg.consideration || intelBjg.compare || intelBjg.consider || '';
-      const compareScore   = scoreStage(compareText) - 15; // Compare typically weakest stage
-      G._stagePcts = {
-        unaware:  Math.max(10, Math.min(85, awarenessScore - 15)),
-        aware:    Math.max(20, Math.min(90, awarenessScore + 5)),
-        compare:  Math.max(10, Math.min(75, compareScore)),
-        consider: Math.max(15, Math.min(90, considerScore)),
-        decide:   Math.max(20, Math.min(95, decideScore + 10))
-      };
-    }
+    // NOTE: the chart now uses the REAL measured stagePresence (G._stageScores),
+    // the same source as the executive strip and the Chapter 02 narrative, so all
+    // three always agree. The old buyerJourneyGaps keyword-sentiment override
+    // (which guessed stage scores by counting good/bad words and hardcoded
+    // "Compare is typically weakest, minus 15") is removed — it fabricated numbers
+    // that contradicted the measured ones.
 
     // Update ch2 title and lede based on journey pattern
     const sp2 = G._stagePcts;
@@ -3153,6 +3124,15 @@ function renderAll() {
     if (ch2Lede && weakStages.length > 0) {
       const weakStr = weakStages.join(', ');
       ch2Lede.innerHTML = `We tested <strong>100 real buyer questions</strong>, weighted by where your journey is weakest. The diagnostic concentrated sampling on <strong>${weakStr}</strong> — where your AI presence is thinnest.`;
+    }
+
+    // Pull quote names the REAL weakest stage, not a hardcoded "Compare".
+    const ch2Pull = document.getElementById('ch2PullQuote');
+    if (ch2Pull) {
+      const weakIdx = stageVals.indexOf(minVal);
+      const weakName = stageNames[weakIdx] || 'Compare';
+      const cleanSite = String(G.site || '').replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/.*$/, '') || 'this site';
+      ch2Pull.innerHTML = `"The ${weakName} stage is where buyers decide between you and the alternative. It's also where <em>${cleanSite} is least present</em>."`;
     }
 
     // Update stage distribution bar with inverse-weighted query allocation
