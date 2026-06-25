@@ -464,7 +464,7 @@ async function runDiagnostic(jobId: string) {
 
   let presence: ReturnType<typeof buildPresenceReportFields> | null = null;
   if (observations.length) {
-    presence = buildPresenceReportFields(observations, job.domain);
+    presence = buildPresenceReportFields(observations, job.domain, summary);
     try {
       await persistPresence(jobId, observations, specs, presence);
     } catch (err: any) {
