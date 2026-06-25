@@ -1258,8 +1258,8 @@ img { max-width: 100%; }
     <!-- ══════ CHAPTER 01 · VOCABULARY ══════ -->
     <section class="chapter" id="c-m1">
       <div class="chap__mark">Chapter 01 · Problem vocabulary</div>
-      <h1 class="chap__h">Your site speaks your language. Not your buyer's.</h1>
-      <p class="chap__lede">AI systems match buyer questions to content using vocabulary overlap. Of the <strong>six canonical terms</strong> enterprise B2B buyers use to describe your category, you cover three well. The rest live in your competitors' content.</p>
+      <h1 class="chap__h" id="ch1Title">Your site speaks your language. Not your buyer's.</h1>
+      <p class="chap__lede" id="ch1LedeStatic">AI systems match buyer questions to content using vocabulary overlap. Of the <strong>six canonical terms</strong> enterprise B2B buyers use to describe your category, you cover three well. The rest live in your competitors' content.</p>
 
       <div class="openstat">
         <div class="openstat__n" id="m1Headline">—<em>%</em></div>
@@ -2643,6 +2643,14 @@ function composeNarrative(report) {
     n.ch1Body2 = `Each canonical term you leave uncovered surrenders a whole category of buyer questions to competitors.`;
     n.ch1Sowhat = `Close the lowest-coverage terms first; each one unlocks a band of queries you currently cannot answer.`;
   }
+  // Biggest-gap line — name the real lowest-coverage canonical term.
+  const terms = (G.m1_terms || []).slice().sort((a, b) => (a.coverage || 0) - (b.coverage || 0));
+  if (terms.length) {
+    const low = terms[0];
+    n.ch1BiggestGap = vocab <= 5
+      ? `With no canonical terms covered, the biggest gap is everything: there is no buyer-language content for engines to match.`
+      : `Your biggest single gap is **${low.term}** at ${low.coverage}% coverage. That is the term most likely to surrender a whole query category to competitors.`;
+  }
 
   // Chapter 02 — stage presence
   if (strongest && weakest) {
@@ -3283,13 +3291,27 @@ function renderM1() {
   // Real vocabulary headline = mean coverage across the six canonical terms.
   const hEl = document.getElementById('m1Headline');
   if (hEl && G._vocabHeadline != null) hEl.innerHTML = G._vocabHeadline + '<em>%</em>';
-  // Update the lede count of "covered well" terms (coverage >= 50)
-  const strong = (G.m1_terms || []).filter(t => (t.coverage || 0) >= 50).length;
-  const ledeEl = document.querySelector('#c-m1 .chap__lede');
+  const vpct = (G._vocabCoveragePct != null) ? G._vocabCoveragePct : (G._vocabHeadline || 0);
+  const strong = (G.m1_terms || []).filter(t => (t.coverage || 0) >= 70).length;
+
+  // Title flips with coverage — never assert "speaks your language, not your
+  // buyer's" on a site that clearly covers the buyer vocabulary.
+  const titleEl = document.getElementById('ch1Title');
+  if (titleEl) {
+    if (vpct >= 75) titleEl.textContent = 'Your site speaks your buyer\u2019s language.';
+    else if (vpct >= 45) titleEl.textContent = 'Your site half-speaks your buyer\u2019s language.';
+    else titleEl.textContent = 'Your site speaks your language. Not your buyer\u2019s.';
+  }
+
+  const ledeEl = document.getElementById('ch1LedeStatic') || document.querySelector('#c-m1 .chap__lede');
   if (ledeEl && G.m1_terms && G.m1_terms.length) {
+    const n = G.m1_terms.length;
+    const tail = vpct >= 75
+      ? (strong < n ? ' The few thinner terms are where the remaining buyer questions slip to competitors.' : ' You cover the buyer vocabulary comprehensively.')
+      : ' The rest live in your competitors\u2019 content.';
     ledeEl.innerHTML = 'AI systems match buyer questions to content using vocabulary overlap. Of the <strong>'
-      + G.m1_terms.length + ' canonical terms</strong> enterprise buyers use to describe your category, you cover '
-      + strong + ' well. The rest live in your competitors\' content.';
+      + n + ' canonical terms</strong> enterprise buyers use to describe your category, you cover '
+      + strong + ' well.' + tail;
   }
   $('m1Bars').innerHTML = G.m1_terms.map(t => `
     <div class="bar-row">
