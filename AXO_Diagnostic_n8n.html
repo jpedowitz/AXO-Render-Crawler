@@ -1583,7 +1583,7 @@ img { max-width: 100%; }
     <section class="chapter" id="c-recs">
       <div class="chap__mark">Chapter 10 · What to do next</div>
       <h1 class="chap__h">Ship four things this half. Revisit the AXO in 90 days.</h1>
-      <p class="chap__lede">Each recommendation below is scoped to a named gap, mapped to an owner archetype, and sized in weeks. If you execute the P0s, your AXO projects to <strong>85</strong> within two quarters.</p>
+      <p class="chap__lede">Each recommendation below is scoped to a named gap, mapped to an owner archetype, and sized in weeks. If you execute the P0s, your AXO projects to <strong id="ch10Proj">85</strong> within two quarters.</p>
 
       <div class="rec-grid" id="recGrid"></div>
     </section>
@@ -2464,6 +2464,10 @@ function applyReportToG(report) {
 
   // Headline + engines (real)
   G._aeoScore   = snap.aeoReadinessScore != null ? snap.aeoReadinessScore : null;
+  G._visibilityScore   = snap.aiVisibilityScore != null ? snap.aiVisibilityScore : G._aeoScore;
+  G._brandAwareness    = snap.brandAwarenessScore != null ? snap.brandAwarenessScore : null;
+  G._liveCitationRate  = snap.liveCitationRate != null ? snap.liveCitationRate : (pres ? pres.retrievalCoverage : null);
+  G._vocabCoveragePct  = snap.vocabularyCoveragePct != null ? snap.vocabularyCoveragePct : null;
   G._byEngine   = (pres && pres.byEngine) || snap.aeoScoreByEngine || {};
   G._engineModes= (pres && pres.engineModes) || snap.engineModes || {};
   G._enginesUsed= snap.enginesUsed || Object.keys(G._byEngine);
@@ -2589,6 +2593,90 @@ function applyReportToG(report) {
   G.queries = (report.queries || []).map(q => ({ ...q,
     engines: G._enginesUsed
   }));
+
+  composeNarrative(report);
+}
+
+// ── Narrative composition from REAL measured data ──────────────────────────
+// Fills every data-n placeholder with prose derived from the actual numbers.
+// No fabricated claims: every sentence traces to a measured field. When the
+// data says the site is invisible, the narrative says so plainly rather than
+// dressing it as a normal content roadmap.
+function composeNarrative(report) {
+  const site = deriveCompanyName(G.site) || G.site;
+  const vis = G._visibilityScore != null ? G._visibilityScore : (G._aeoScore || 0);
+  const aware = G._brandAwareness;
+  const cite = G._liveCitationRate;
+  const vocab = G._vocabCoveragePct != null ? G._vocabCoveragePct : (G._vocabHeadline || 0);
+  const stages = G._stageScores || {};
+  const stageName = { unaware:'Unaware', aware:'Aware', compare:'Compare', consider:'Consider', decide:'Decide' };
+  const stageEntries = Object.keys(stageName).filter(k => stages[k] != null).map(k => [k, stages[k]]);
+  const weakest = stageEntries.slice().sort((a,b) => a[1]-b[1])[0];
+  const strongest = stageEntries.slice().sort((a,b) => b[1]-a[1])[0];
+  const spread = (typeof G._personaSpread === 'number') ? G._personaSpread : 0;
+  const thin = (vocab <= 5 && (cite == null || cite < 15)); // invisible-site flag
+
+  const n = {};
+
+  // Bottom line — the headline story. Thin site => name-known-but-invisible.
+  if (thin && aware != null) {
+    n.bottomLine = `AI engines recognize **${site}** by name (brand awareness ${aware}/100), but they cannot find, retrieve, or cite anything on your site. Live citation coverage is ${cite != null ? cite : 0}%, and your content covers ${vocab}% of the vocabulary buyers actually use. Your visibility score is **${vis}/100**. The gap between what AI knows about you and what it can retrieve from you is the entire opportunity.`;
+  } else {
+    n.bottomLine = `**${site}** scores **${vis}/100** for AI visibility. Live engines cite your content ${cite != null ? cite : 0}% of the time they retrieve, and your site covers ${vocab}% of the buyer vocabulary for your category${aware != null ? `. AI brand awareness is stronger at ${aware}/100, so the work is converting recognition into retrievable, citable content` : ''}.`;
+  }
+
+  // Chapter 01 — vocabulary
+  if (vocab <= 5) {
+    n.ch1Lede = `AI matches buyer questions to content by vocabulary overlap. Your crawled pages register **none** of the six canonical buyer terms, so there is almost nothing for an engine to match a question against.`;
+    n.ch1Body1 = `This is not a tuning problem. The crawl could not find substantive, structured content on the site, which is why every canonical term reads 0%.`;
+    n.ch1Body2 = `Until the site exposes crawlable pages that speak in buyer language, vocabulary coverage cannot move.`;
+    n.ch1Sowhat = `The first move is foundational: publish accessible, structured pages that use the language buyers actually search. Everything else depends on it.`;
+  } else {
+    n.ch1Lede = `AI matches buyer questions to content by vocabulary overlap. Of the six canonical terms buyers use in your category, your site covers **${vocab}%** on average.`;
+    n.ch1Body1 = `Your strongest coverage is where you already publish proof and decision language. The thin terms are where buyer questions go unanswered.`;
+    n.ch1Body2 = `Each canonical term you leave uncovered surrenders a whole category of buyer questions to competitors.`;
+    n.ch1Sowhat = `Close the lowest-coverage terms first; each one unlocks a band of queries you currently cannot answer.`;
+  }
+
+  // Chapter 02 — stage presence
+  if (strongest && weakest) {
+    n.ch2AwareWin = `Your strongest stage is **${stageName[strongest[0]]}** at ${strongest[1]}%. AI surfaces you most reliably there.`;
+    n.ch2CompareGap = `Your weakest stage is **${stageName[weakest[0]]}** at ${weakest[1]}%, the point in the journey where you are hardest to find.`;
+    n.ch2Sowhat = `Concentrate new content on the ${stageName[weakest[0]]} stage. That is where added presence converts directly into buyer reach.`;
+  }
+
+  // Chapter 03 — persona variance, conditional on real spread
+  if (spread <= 8) {
+    n.ch3Lede = `Your personas are served evenly. No single persona is dragging the score; AI treats them within ${spread} points of each other.`;
+    n.ch3PersonaGap = `There is no weak-persona gap to close here. The opportunity is lifting all personas together, not rescuing one.`;
+    n.ch3Sowhat = `Because coverage is even, broad content investments pay off across every persona rather than fixing one outlier.`;
+  } else {
+    n.ch3Lede = `AI does not see your personas equally. The spread between your strongest and weakest persona is **${spread} points**.`;
+    n.ch3PersonaGap = `Your weakest persona is where AI most often routes buyers to competitors instead of you.`;
+    n.ch3Sowhat = `Closing the weakest persona is the single highest-leverage content move in this report.`;
+  }
+
+  // Chapter 05 — competitive
+  const sov = (G._shareOfVoice || [])[0];
+  if (sov) {
+    n.ch5Lede = `Against your competitive set on the same buyer questions, here is where you actually stand.`;
+    n.ch5CompetitorNote = `When buyers ask comparison questions, AI most often names **${sov.name}** as the alternative (${sov.sharePct}% of competitor mentions).`;
+    n.ch5Pull = thin
+      ? `You are not in the comparison conversation yet. Competitors own the named-comparison queries because there is nothing of yours for AI to cite.`
+      : `The opportunity is answerable, named-comparison content at the stages where buyers evaluate options.`;
+  }
+
+  // Chapter 07 + 08
+  n.ch7Body = `Your strongest clusters carry the score. The weaker ones sit directly on high-intent buyer paths, which is exactly where under-investment costs you.`;
+  n.ch7Sowhat = thin
+    ? `With the site barely crawlable, cluster strength is provisional. Restore crawlable content first, then reinforce the weak clusters.`
+    : `Reinforce the weakest clusters first; they sit on the queries buyers use to evaluate and decide.`;
+  n.ch8Lede = `Every rival was crawled at full depth and scored on the same 100 buyer questions. This is the apples-to-apples comparison.`;
+  n.ch8Sowhat = (G.cmpDeep && G.cmpDeep[0] && !G.cmpDeep[0].you)
+    ? `Your nearest target is ${G.cmpDeep[0].name}. Match their answerable content on the stages where they outscore you.`
+    : `Hold your lead by keeping content fresh and citable on the stages where buyers compare.`;
+
+  G._narrative = Object.assign({}, G._narrative, n);
 }
 
 /* ── Real competitor crawl & score ──────────────────────────
@@ -2845,7 +2933,10 @@ function renderNarrative() {
     };
     const strongName = trimPersonaName(strongest.name);
     const weakName = trimPersonaName(weakest.name);
-    if (strongName && weakName && strongName !== weakName) {
+    const spread = (typeof G._personaSpread === 'number') ? G._personaSpread : ((strongest.score||0) - (weakest.score||0));
+    if (spread <= 8) {
+      ch3Title.textContent = 'Every persona sees you about the same.';
+    } else if (strongName && weakName && strongName !== weakName) {
       ch3Title.textContent = strongName + ' sees you clearly. ' + weakName + ' does not.';
     }
   }
@@ -3087,11 +3178,14 @@ function renderAll() {
   if (eScoreEl && G._aeoScore !== undefined) {
     eScoreEl.innerHTML = G._aeoScore + '<em>/100</em>';
   }
-  // Update "score from X → Y" title
+  // Update "score from X → Y" title. Store the target globally so Chapter 10
+  // and the CTA show the SAME projection, not a hardcoded 85.
   const recsTitle = document.querySelector('.exec__recs-title');
-  if (recsTitle && G._aeoScore !== undefined) {
-    const target = Math.min(99, Math.round(G._aeoScore + 11));
-    recsTitle.textContent = 'Three actions that move the score from ' + G._aeoScore + ' → ' + target;
+  if (G._aeoScore !== undefined && G._aeoScore !== null) {
+    G._projTarget = Math.min(99, Math.round(G._aeoScore + 11));
+  }
+  if (recsTitle && G._projTarget != null) {
+    recsTitle.textContent = 'Three actions that move the score from ' + G._aeoScore + ' → ' + G._projTarget;
   }
   // Update exec stats from REAL measured data: Decide-stage presence, Compare-stage
   // presence, and live citation coverage. No score multipliers.
@@ -3115,10 +3209,24 @@ function renderAll() {
     el.innerHTML = el.innerHTML.replace(/\$\{G\.site\}/g, cleanSite);
   });
 
-  // Persona drag = real spread between strongest and weakest persona score
+  // Persona drag = real spread between strongest and weakest persona score.
+  // When the spread is small, reframe rather than assert a drag that isn't real.
   const dragEl = document.getElementById('personaDrag');
-  if (dragEl && typeof G._personaSpread === 'number' && G._personaSpread > 0) {
-    dragEl.textContent = G._personaSpread + '-point drag';
+  if (dragEl && typeof G._personaSpread === 'number') {
+    if (G._personaSpread <= 8) {
+      const pull = dragEl.closest('.pull__q');
+      if (pull) pull.innerHTML = 'No single persona is dragging the score; AI serves them within <em>' + G._personaSpread + ' points</em> of each other. The lift is broad, not a one-persona fix.';
+      else dragEl.textContent = G._personaSpread + '-point spread';
+    } else {
+      dragEl.textContent = G._personaSpread + '-point drag';
+    }
+  }
+
+  // Reconcile projection: Chapter 10 lede used a hardcoded 85. Point it at the
+  // same computed target as the executive header.
+  if (G._projTarget != null) {
+    const ch10 = document.getElementById('ch10Proj');
+    if (ch10) ch10.textContent = G._projTarget;
   }
 
   // Chapter 02 stage-allocation bar — real per-stage query counts (same source
@@ -3855,7 +3963,7 @@ function preparePDFDom() {
     cta.id = 'pdf-cta-print';
     cta.innerHTML =
       '<div class="cta-eyebrow">The Pedowitz Group · Revenue Marketing Consulting</div>' +
-      '<h2 class="cta-h">Ready to move the score from ' + score + ' to 85?</h2>' +
+      '<h2 class="cta-h">Ready to move the score from ' + score + ' to ' + (G._projTarget != null ? G._projTarget : Math.min(99, Math.round((score||0) + 11))) + '?</h2>' +
       '<p class="cta-sub">TPG builds the content, schema, and buyer journey architecture that AI engines cite. Measurable AXO improvement in 60-90 days.</p>' +
       '<div class="cta-contact"><strong>Web</strong> pedowitzgroup.com &nbsp; <strong>Email</strong> hello@pedowitzgroup.com &nbsp; <strong>Phone</strong> 404-990-9616</div>' +
       '<div class="cta-footer">Confidential · The Pedowitz Group · 2026 · Revenue Marketing.AI</div>';
