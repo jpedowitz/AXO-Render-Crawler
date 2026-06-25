@@ -2468,6 +2468,7 @@ function applyReportToG(report) {
   G._brandAwareness    = snap.brandAwarenessScore != null ? snap.brandAwarenessScore : null;
   G._liveCitationRate  = snap.liveCitationRate != null ? snap.liveCitationRate : (pres ? pres.retrievalCoverage : null);
   G._vocabCoveragePct  = snap.vocabularyCoveragePct != null ? snap.vocabularyCoveragePct : null;
+  G._corpusHealth      = snap.corpusHealthScore != null ? snap.corpusHealthScore : null;
   G._byEngine   = (pres && pres.byEngine) || snap.aeoScoreByEngine || {};
   G._engineModes= (pres && pres.engineModes) || snap.engineModes || {};
   G._enginesUsed= snap.enginesUsed || Object.keys(G._byEngine);
@@ -2572,9 +2573,14 @@ function applyReportToG(report) {
   // Competitors (real, scored) + share of voice
   G._shareOfVoice = report.competitorShareOfVoice || [];
   const comps = (report.competitors || []).filter(c => c.domain && c.score != null);
+  // Every site here is now scored on the SAME visibility ruler (computeVisibility),
+  // subject and competitors alike. So the subject appears on its visibility score
+  // and the deltas are finally apples-to-apples.
+  const subjectCompAxis = (G._visibilityScore != null) ? G._visibilityScore : G._aeoScore;
+  G._subjectCompAxis = subjectCompAxis;
   G.competitors = [
     { name: deriveCompanyName(G.site) || (report.domain || 'You'),
-      domain: report.domain || G.site, axo: G._aeoScore, you: true, crawled: true }
+      domain: report.domain || G.site, axo: subjectCompAxis, you: true, crawled: true }
   ].concat(comps.map(c => ({
     name: String(c.domain).split('.')[0].replace(/^./, m => m.toUpperCase()),
     domain: c.domain, axo: c.score, you: false, crawled: true,
@@ -2585,7 +2591,7 @@ function applyReportToG(report) {
   G.cmpDeep = G.competitors.map(c => ({
     ...c,
     pages: c.you ? G._totalPagesCrawled : (c.pages || 0),
-    delta: (c.axo != null && G._aeoScore != null) ? c.axo - G._aeoScore : null
+    delta: (c.axo != null && subjectCompAxis != null && !c.you) ? c.axo - subjectCompAxis : null
   }));
 
   // Real query audit for the appendix (engines that actually ran)
@@ -2659,10 +2665,10 @@ function composeNarrative(report) {
   // Chapter 05 — competitive
   const sov = (G._shareOfVoice || [])[0];
   if (sov) {
-    n.ch5Lede = `Against your competitive set on the same buyer questions, here is where you actually stand.`;
+    n.ch5Lede = `Every site here, you and your competitors, is scored the same way: live citation rate, vocabulary coverage, and corpus health run through one formula. This is a true apples-to-apples comparison.`;
     n.ch5CompetitorNote = `When buyers ask comparison questions, AI most often names **${sov.name}** as the alternative (${sov.sharePct}% of competitor mentions).`;
     n.ch5Pull = thin
-      ? `You are not in the comparison conversation yet. Competitors own the named-comparison queries because there is nothing of yours for AI to cite.`
+      ? `You are not in the comparison conversation yet. Competitors own the named-comparison queries because there is far more of their content for AI to retrieve.`
       : `The opportunity is answerable, named-comparison content at the stages where buyers evaluate options.`;
   }
 
@@ -2671,12 +2677,13 @@ function composeNarrative(report) {
   n.ch7Sowhat = thin
     ? `With the site barely crawlable, cluster strength is provisional. Restore crawlable content first, then reinforce the weak clusters.`
     : `Reinforce the weakest clusters first; they sit on the queries buyers use to evaluate and decide.`;
-  n.ch8Lede = `Every rival was crawled at full depth and scored on the same 100 buyer questions. This is the apples-to-apples comparison.`;
+  n.ch8Lede = `Every rival was crawled and scored on the same visibility model as you, live citation rate, vocabulary, and corpus health. The deltas below are a true like-for-like comparison.`;
   n.ch8Sowhat = (G.cmpDeep && G.cmpDeep[0] && !G.cmpDeep[0].you)
     ? `Your nearest target is ${G.cmpDeep[0].name}. Match their answerable content on the stages where they outscore you.`
     : `Hold your lead by keeping content fresh and citable on the stages where buyers compare.`;
 
-  G._narrative = Object.assign({}, G._narrative, n);
+  // Replace (do not merge) so a prior run's narrative can never bleed through.
+  G._narrative = n;
 }
 
 /* ── Real competitor crawl & score ──────────────────────────
@@ -2983,7 +2990,7 @@ function renderNarrative() {
         .replace(/</g, '&lt;').replace(/>/g, '&gt;')
         .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
         .replace(/\*(.+?)\*/g, '<em>$1</em>');
-      el.removeAttribute('data-n'); // mark as filled
+      // keep the data-n attribute so subsequent runs in the same session repaint
     }
   });
   // Also fill the bottom line executive pull quote
@@ -3400,10 +3407,30 @@ function renderLLM() {
       .sort((a, b) => b.gap - a.gap)
       .slice(0, 3);
 
+    const thin = ((G._vocabCoveragePct != null ? G._vocabCoveragePct : 100) <= 5) &&
+                 ((G._liveCitationRate != null ? G._liveCitationRate : 100) < 15);
+    const strongMode = (G._engineModes && G._engineModes[strongest.key]) || 'retrieval';
+    const strongScore = engAvg[strongest.key];
+
+    let note1;
+    if (thin) {
+      note1 = `<strong>No engine has a strong picture of you.</strong> Your best engine, ${strongest.name}, surfaces you only ${strongScore}% of the time, and even that is mostly brand recall rather than a citation of your site. There is little published content for any engine to retrieve.`;
+    } else if (strongMode === 'parametric') {
+      note1 = `<strong>${strongest.name} recalls your brand most readily</strong>, but it answers from training data, not live retrieval. That is brand awareness, not proof an engine can find and cite your current pages.`;
+    } else if (strongScore < 40) {
+      note1 = `<strong>${strongest.name} is your strongest engine, but only at ${strongScore}%.</strong> Even the engine that retrieves you best cites your site less than half the time. The opportunity is structured, citable content it can pull.`;
+    } else {
+      note1 = `<strong>${strongest.name} cites you most consistently.</strong> This is a retrieval engine actually pulling and citing your pages, the clearest signal of live AI visibility.`;
+    }
+
+    const note2 = thin
+      ? `<strong>${weakest.name} effectively cannot see you</strong> at ${engAvg[weakest.key]}%. For a site with little crawlable content, this is a content-existence problem, not a tuning one.`
+      : `<strong>${weakest.name} lags by ${engAvg[strongest.key] - engAvg[weakest.key]} points.</strong> ${weakest.note} For this engine specifically, the gap is a publishing freshness and structured-content problem, not a brand strength problem.`;
+
     const commentary = [
-      `<strong>${strongest.name} cites you most consistently.</strong> This is where buyers asking strategic, conceptual questions meet your content — the framework language translates cleanly into the retrieval pattern this engine rewards.`,
-      `<strong>${weakest.name} lags by ${engAvg[strongest.key] - engAvg[weakest.key]} points.</strong> ${weakest.note} For this engine specifically, the gap is a publishing freshness and structured-content problem, not a brand strength problem.`,
-      ...disagreements.map(d => `<strong>${d.cluster.name}:</strong> ${d.lead.e.name} scores ${d.lead.v}, ${d.lag.e.name} scores ${d.lag.v} — a ${d.gap}-point spread. ${d.lag.e.name} hasn't fully indexed your newest work in this cluster; expect this to close within two quarters if the content velocity stays steady.`)
+      note1,
+      note2,
+      ...(thin ? [] : disagreements.map(d => `<strong>${d.cluster.name}:</strong> ${d.lead.e.name} scores ${d.lead.v}, ${d.lag.e.name} scores ${d.lag.v} — a ${d.gap}-point spread. ${d.lag.e.name} retrieves you less in this cluster; closing the gap is a structured-content and freshness play.`))
     ];
 
     gapsEl.innerHTML = commentary.map((t, i) => `
