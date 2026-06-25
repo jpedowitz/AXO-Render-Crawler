@@ -567,11 +567,11 @@ img { max-width: 100%; }
   .persona-narr__score-n { font-family: var(--font-display); font-size: 22px; font-weight: 800; color: var(--tpg-navy); letter-spacing: -0.02em; }
 
   /* Competitor row */
-  .cmp-row { display: grid; grid-template-columns: 32px 1fr 70px 80px; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--axo-surface-2); align-items: center; }
+  .cmp-row { display: grid; grid-template-columns: 32px minmax(0,1fr) 70px 80px; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--axo-surface-2); align-items: center; }
   .cmp-row:last-child { border: none; }
   .cmp-rank { font-family: var(--font-mono); font-size: 11px; color: var(--axo-ink-4); font-weight: 700; }
-  .cmp-name { font-size: 14px; font-weight: 600; color: var(--tpg-navy); }
-  .cmp-name small { display: block; font-size: 11px; color: var(--axo-ink-4); font-weight: 400; font-family: var(--font-mono); margin-top: 1px; }
+  .cmp-name { font-size: 14px; font-weight: 600; color: var(--tpg-navy); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cmp-name small { display: block; font-size: 11px; color: var(--axo-ink-4); font-weight: 400; font-family: var(--font-mono); margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .cmp-bar { display: flex; align-items: center; gap: 6px; }
   .cmp-bar-track { flex: 1; height: 4px; border-radius: var(--r-pill); background: var(--axo-surface-2); overflow: hidden; }
   .cmp-bar-fill { height: 100%; background: var(--tpg-navy); border-radius: var(--r-pill); }
@@ -1389,7 +1389,7 @@ img { max-width: 100%; }
       <div class="llm-gaps" id="llmGaps" style="margin-top: 24px;"></div>
 
       <div class="sowhat">
-        <div class="sowhat__txt">The engine where you're weakest is <em id="llmWeakest">—</em>, <strong id="llmWeakGap">—</strong> points behind your strongest. That's the engine your next publishing sprint should be written for: fresh-indexed, canonical, well-structured. The other three will catch up for free.</div>
+        <div class="sowhat__txt" id="llmWeakSowhat">The engine where you're weakest is <em id="llmWeakest">—</em>, <strong id="llmWeakGap">—</strong> points behind your strongest.</div>
         <div class="sowhat__action">→ Chapter 06 translates this into specific content investments</div>
       </div>
     </section>
@@ -3107,23 +3107,28 @@ function renderAll() {
     const stageNames = ['Unaware','Aware','Compare','Consider','Decide'];
     const minVal = Math.min(...stageVals);
     const maxVal = Math.max(...stageVals);
+    const stageSpread = maxVal - minVal;
     // Weak = within 5pts of the minimum; Strong = within 5pts of the maximum
     const weakStages = stageNames.filter((st, i) => stageVals[i] <= minVal + 5);
     const strongStages = stageNames.filter((st, i) => stageVals[i] >= maxVal - 5);
+    const avgStage = Math.round(stageVals.reduce((a, b) => a + b, 0) / stageVals.length);
+    const flat = stageSpread <= 8; // all stages clustered → no meaningful per-stage gap
     const ch2Title = document.getElementById('ch2Title');
     const ch2Lede = document.getElementById('ch2Lede');
     if (ch2Title) {
-      if (weakStages.length > 0 && strongStages.length > 0 && weakStages[0] !== strongStages[0]) {
-        const weakStr = weakStages.join(' and ');
+      if (flat) {
+        const band = avgStage >= 60 ? 'consistently across the funnel' : avgStage >= 40 ? 'evenly, but with room across the funnel' : 'thinly and evenly across every stage';
+        ch2Title.textContent = `AI presence is ${avgStage >= 60 ? 'steady' : 'uniformly low'} across your buyer journey.`;
+        ch2Lede.innerHTML = `We tested <strong>100 real buyer questions</strong> across all five journey stages. Your presence sits in a tight band around <strong>${avgStage}%</strong>, ${band}. There is no single weak stage to target; the lift is broad.`;
+      } else if (weakStages.length > 0 && strongStages.length > 0 && weakStages[0] !== strongStages[0]) {
+        const weakStr = weakStages.slice(0, 2).join(' and ');
         const strongStr = strongStages.slice(0, 2).join(' and ');
         ch2Title.textContent = `AI finds you well at the ${strongStr} stage${strongStages.length > 1 ? 's' : ''}. The ${weakStr} stage${weakStages.length > 1 ? 's are' : ' is'} the gap.`;
+        ch2Lede.innerHTML = `We tested <strong>100 real buyer questions</strong>, weighted by where your journey is weakest. The diagnostic concentrated sampling on <strong>${weakStages.slice(0, 2).join(', ')}</strong> — where your AI presence is thinnest.`;
       } else if (weakStages.length > 0) {
-        ch2Title.textContent = `The ${weakStages.join(' and ')} stage${weakStages.length > 1 ? 's are' : ' is'} where AI isn't finding you.`;
+        ch2Title.textContent = `The ${weakStages.slice(0, 2).join(' and ')} stage${weakStages.length > 1 ? 's are' : ' is'} where AI isn't finding you.`;
+        ch2Lede.innerHTML = `We tested <strong>100 real buyer questions</strong>, weighted by where your journey is weakest. The diagnostic concentrated sampling on <strong>${weakStages.slice(0, 2).join(', ')}</strong> — where your AI presence is thinnest.`;
       }
-    }
-    if (ch2Lede && weakStages.length > 0) {
-      const weakStr = weakStages.join(', ');
-      ch2Lede.innerHTML = `We tested <strong>100 real buyer questions</strong>, weighted by where your journey is weakest. The diagnostic concentrated sampling on <strong>${weakStr}</strong> — where your AI presence is thinnest.`;
     }
 
     // Pull quote names the REAL weakest stage, not a hardcoded "Compare".
@@ -3331,6 +3336,30 @@ function renderLLM() {
   const ranked = [...ENGINES].sort((a, b) => engAvg[b.key] - engAvg[a.key]);
   const weakest = ranked[ranked.length - 1];
   const strongest = ranked[0];
+  // Tie-aware groups: every engine sharing the lowest / highest score.
+  const weakestTied = ENGINES.filter(e => engAvg[e.key] === worst);
+  const strongestTied = ENGINES.filter(e => engAvg[e.key] === best);
+  const joinNames = (arr) => arr.length === 1 ? arr[0].name
+    : arr.length === 2 ? arr[0].name + ' and ' + arr[1].name
+    : arr.slice(0, -1).map(x => x.name).join(', ') + ', and ' + arr[arr.length - 1].name;
+  const weakestLabel = joinNames(weakestTied);
+  const weakestVerb = weakestTied.length > 1 ? 'are tied at the bottom' : 'is weakest';
+
+  // Engine card note, derived from this engine's real mode + score, not fixed
+  // lore. Parametric engines (Claude, ChatGPT) measure brand recall; retrieval
+  // engines (Perplexity, Gemini) measure live citation. The note explains what
+  // the number means for THIS engine rather than reciting generic engine trivia.
+  const engineNote = (key, score) => {
+    const mode = (G._engineModes && G._engineModes[key]) || 'parametric';
+    if (mode === 'retrieval') {
+      if (score >= 70) return 'Retrieves and cites your pages live. This is real AI visibility, the strongest signal in the report.';
+      if (score >= 35) return 'Retrieves live but cites you inconsistently. Structured, linkable content lifts this fastest.';
+      return 'Retrieves live but rarely lands on your pages. The clearest gap to close with citable, well-structured content.';
+    }
+    // parametric
+    if (score >= 25) return 'Answers from training, not live retrieval. It knows your brand, which is recall, not proof it can cite your current pages.';
+    return 'Answers from training, not live retrieval. On a visibility measure it scores low by design; its strength shows in brand awareness, reported separately.';
+  };
 
   // Engine cards
   wrap.innerHTML = ENGINES.map(e => {
@@ -3346,7 +3375,7 @@ function renderLLM() {
         <div class="llm-card__score">${v}<small>/100</small></div>
         <div class="llm-card__rank">${rankLbl}${rank === 1 ? ' · where you lead' : (rank === 4 ? ' · where to invest' : '')}</div>
         <div class="llm-card__bar"><div class="llm-card__bar-fill" style="width:${v}%;"></div></div>
-        <div class="llm-card__note">${e.note}</div>
+        <div class="llm-card__note">${engineNote(e.key, v)}</div>
       </div>`;
   }).join('');
 
@@ -3354,9 +3383,23 @@ function renderLLM() {
   const spreadEl = $('llmSpread');
   if (spreadEl) spreadEl.textContent = spread;
   const weakEl = $('llmWeakest');
-  if (weakEl) weakEl.textContent = weakest.name;
+  if (weakEl) weakEl.textContent = weakestLabel;
   const weakGapEl = $('llmWeakGap');
   if (weakGapEl) weakGapEl.textContent = (engAvg[strongest.key] - engAvg[weakest.key]);
+
+  // The "so what" must point at a RETRIEVAL engine, because content work moves
+  // retrieval, not training-based recall. If the lowest engine is parametric,
+  // naming it as the publishing target is wrong advice.
+  const sowhatEl = $('llmWeakSowhat');
+  if (sowhatEl) {
+    const retrievalEngines = ENGINES.filter(e => ((G._engineModes && G._engineModes[e.key]) || 'parametric') === 'retrieval');
+    const weakRetrieval = retrievalEngines.sort((a, b) => engAvg[a.key] - engAvg[b.key])[0];
+    if (weakRetrieval && engAvg[weakRetrieval.key] < 70) {
+      sowhatEl.innerHTML = `Among the engines that actually retrieve, <em>${weakRetrieval.name}</em> is where you are weakest at ${engAvg[weakRetrieval.key]}. That is the engine your next publishing sprint should target: structured, citable, well-organized pages. The parametric engines move with brand presence, not content velocity.`;
+    } else if (weakRetrieval) {
+      sowhatEl.innerHTML = `Both retrieval engines already cite you well (lowest is <em>${weakRetrieval.name}</em> at ${engAvg[weakRetrieval.key]}). Hold that by keeping content fresh and citable; the parametric engines reflect brand awareness, reported separately.`;
+    }
+  }
 
   // Per-cluster matrix
   const matrix = $('llmMatrix');
@@ -3425,14 +3468,31 @@ function renderLLM() {
       note1 = `<strong>${strongest.name} cites you most consistently.</strong> This is a retrieval engine actually pulling and citing your pages, the clearest signal of live AI visibility.`;
     }
 
-    const note2 = thin
-      ? `<strong>${weakest.name} effectively cannot see you</strong> at ${engAvg[weakest.key]}%. For a site with little crawlable content, this is a content-existence problem, not a tuning one.`
-      : `<strong>${weakest.name} lags by ${engAvg[strongest.key] - engAvg[weakest.key]} points.</strong> ${weakest.note} For this engine specifically, the gap is a publishing freshness and structured-content problem, not a brand strength problem.`;
+    const weakMode = (G._engineModes && G._engineModes[weakest.key]) || 'parametric';
+    const weakGap = engAvg[strongest.key] - engAvg[weakest.key];
+    const allWeakParametric = weakestTied.every(e => ((G._engineModes && G._engineModes[e.key]) || 'parametric') === 'parametric');
+    const tied = weakestTied.length > 1;
+    let note2;
+    if (thin) {
+      note2 = `<strong>${weakestLabel} ${tied ? 'cannot' : 'cannot'} see you</strong> at ${engAvg[weakest.key]}%. For a site with little crawlable content, this is a content-existence problem, not a tuning one.`;
+    } else if (allWeakParametric) {
+      note2 = `<strong>${weakestLabel} ${weakestVerb} at ${engAvg[weakest.key]}.</strong> ${tied ? 'They both answer' : 'It answers'} from training rather than retrieval, so a low visibility number ${tied ? 'for these engines is' : 'here is'} expected: it reflects recall, not whether the engine can cite your live pages. The lever is the retrieval engines, not ${tied ? 'these' : 'this one'}.`;
+    } else {
+      note2 = `<strong>${weakestLabel} ${weakestVerb} at ${engAvg[weakest.key]}.</strong> ${tied ? 'These engines are' : 'This is a retrieval engine'} not landing on your pages. The gap is structured, citable, well-organized content, the kind ${tied ? 'they reward' : 'this engine rewards'}.`;
+    }
+
+    const disagreementNote = (d) => {
+      const lagMode = (G._engineModes && G._engineModes[d.lag.e.key]) || 'parametric';
+      const tail = lagMode === 'parametric'
+        ? `${d.lag.e.name} answers from training here rather than retrieving, so it trails the retrieval engines, expected, not a content gap to chase in this cluster.`
+        : `${d.lag.e.name} retrieves you less in this cluster; closing the gap is a structured-content play.`;
+      return `<strong>${d.cluster.name}:</strong> ${d.lead.e.name} scores ${d.lead.v}, ${d.lag.e.name} scores ${d.lag.v} — a ${d.gap}-point spread. ${tail}`;
+    };
 
     const commentary = [
       note1,
       note2,
-      ...(thin ? [] : disagreements.map(d => `<strong>${d.cluster.name}:</strong> ${d.lead.e.name} scores ${d.lead.v}, ${d.lag.e.name} scores ${d.lag.v} — a ${d.gap}-point spread. ${d.lag.e.name} retrieves you less in this cluster; closing the gap is a structured-content and freshness play.`))
+      ...(thin ? [] : disagreements.map(disagreementNote))
     ];
 
     gapsEl.innerHTML = commentary.map((t, i) => `
@@ -3715,7 +3775,20 @@ function renderCompetitorsDeep() {
 }
 
 function renderFunnel() {
-  $('convFunnel').innerHTML = G.funnel.map(f => `
+  const el = $('convFunnel');
+  if (!el) return;
+  // Representative AI-referred funnel (TPG cross-client benchmark, illustrative).
+  // Used when a run has no per-company funnel data, which is every run, since we
+  // do not measure a single company's analytics here.
+  const fallback = [
+    { stage: 'AI-referred visit', rate: 100 },
+    { stage: 'Engaged on page',   rate: 71 },
+    { stage: 'Viewed offer / pricing', rate: 43 },
+    { stage: 'Started form',      rate: 22 },
+    { stage: 'Completed form',    rate: 9 }
+  ];
+  const data = (G.funnel && G.funnel.length) ? G.funnel : fallback;
+  el.innerHTML = data.map(f => `
     <div class="bar-row">
       <div class="bar-hd"><span class="bar-lbl">${f.stage}</span><span class="bar-n">${f.rate}%</span></div>
       <div class="bar"><div class="bar__fill" style="width:${f.rate}%"></div></div>
