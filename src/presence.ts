@@ -436,21 +436,53 @@ export async function measurePresence(args: {
 
 const STAGES = ['unaware', 'aware', 'compare', 'consider', 'decide'];
 
-function presenceValue(o: PresenceObservation): number {
-  // 0..1 strength for averaging. Retrieval citation counts full; a parametric
-  // mention counts by prominence. Absent = 0.
+// VISIBILITY value: how much real, retrievable presence an observation proves.
+// This drives every consistency-critical metric (per-engine, per-stage,
+// per-persona). Parametric engines do not retrieve the live site, so a
+// parametric mention is brand RECALL, not visibility, and counts only a little.
+// Retrieval: a real citation counts full; a name-drop without a citation counts
+// little (it is the engine knowing the name, not finding the page).
+//
+// Parametric weight is env-tunable. Default 0.12 lands a famous-brand parametric
+// engine (Claude/ChatGPT recalling the brand) around 12-18 on the visibility
+// axis: low, because recall is not retrieval, but not zero. Raise
+// AXO_VIS_PARAMETRIC_WEIGHT toward 0.25 if you want recall to count for more.
+const VIS_PARAMETRIC_WEIGHT = (() => {
+  const v = Number(process.env.AXO_VIS_PARAMETRIC_WEIGHT);
+  return Number.isFinite(v) && v >= 0 && v <= 1 ? v : 0.12;
+})();
+const VIS_NAMED_NOT_CITED = (() => {
+  const v = Number(process.env.AXO_VIS_NAMED_NOT_CITED);
+  return Number.isFinite(v) && v >= 0 && v <= 1 ? v : 0.2;
+})();
+
+function visibilityValue(o: PresenceObservation): number {
   if (!o.ok) return 0;
   if (o.mode === 'retrieval') {
     if (o.brandCited) return 1;
-    return o.brandPresent ? 0.6 : 0; // named but not cited = partial
+    return o.brandPresent ? VIS_NAMED_NOT_CITED : 0; // named but not cited = weak signal
   }
-  return o.prominence / 3; // parametric: 0, .33, .66, 1
+  // parametric: recall, not visibility. Small contribution, prominence-scaled.
+  return o.brandPresent ? VIS_PARAMETRIC_WEIGHT * (o.prominence / 3 + 0.5) : 0;
+}
+
+// RECALL value: parametric brand salience, used ONLY for brandAwarenessScore.
+// This is the "fame" axis we deliberately keep separate from visibility.
+function recallValue(o: PresenceObservation): number {
+  if (!o.ok) return 0;
+  return o.prominence / 3; // 0, .33, .66, 1
 }
 
 function rate(obs: PresenceObservation[]): number {
   const ok = obs.filter(o => o.ok);
   if (!ok.length) return 0;
-  return Math.round((ok.reduce((s, o) => s + presenceValue(o), 0) / ok.length) * 100);
+  return Math.round((ok.reduce((s, o) => s + visibilityValue(o), 0) / ok.length) * 100);
+}
+
+function recallRate(obs: PresenceObservation[]): number {
+  const ok = obs.filter(o => o.ok);
+  if (!ok.length) return 0;
+  return Math.round((ok.reduce((s, o) => s + recallValue(o), 0) / ok.length) * 100);
 }
 
 // ── Headline: AI VISIBILITY, gated by crawl reality ───────────────────────
@@ -628,12 +660,12 @@ export function buildPresenceReportFields(
     retrievalRan: retrievalObs.length > 0,
   });
 
-  // Brand awareness = parametric salience, reported as its own number so the
-  // story can be: "AI knows your name (X) but cannot retrieve your site (Y)."
-  const brandAwarenessScore = parametricObs.length ? rate(parametricObs) : 0;
+  // Brand awareness = parametric salience (FAME), its own number so the story
+  // can be: "AI knows your name (X) but cannot retrieve your site (Y)."
+  const brandAwarenessScore = parametricObs.length ? recallRate(parametricObs) : 0;
 
   const knowledgeScore = brandAwarenessScore;            // alias
-  const citationScore = retrievalObs.length ? rate(retrievalObs) : 0; // mention-weighted, for engine display
+  const citationScore = retrievalObs.length ? rate(retrievalObs) : 0; // visibility of retrieval engines
   const aeoPresenceScore = aiVisibilityScore;            // backcompat alias
 
   return {
