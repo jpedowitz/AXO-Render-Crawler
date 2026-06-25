@@ -345,8 +345,15 @@ export function buildReport(args: {
     domain: args.job.domain,
     generatedAt: new Date().toISOString(),
     axoSnapshot: {
-      // headline score: prefer measured presence; fall back to crawl-analysis blend
-      aeoReadinessScore: presence ? presence.aeoPresenceScore : args.blended.score,
+      // headline score: AI VISIBILITY (measured, crawl-gated). Falls back to
+      // crawl-analysis blend only when presence did not run.
+      aeoReadinessScore: presence ? presence.aiVisibilityScore : args.blended.score,
+      aiVisibilityScore: presence ? presence.aiVisibilityScore : args.blended.score,
+      // Brand fame, reported separately — NOT part of the headline.
+      brandAwarenessScore: presence ? presence.brandAwarenessScore : null,
+      liveCitationRate: presence ? presence.liveCitationRate : null,
+      vocabularyCoveragePct: presence ? presence.vocabularyCoveragePct : vocabularyHeadline(args.summary),
+      corpusHealthScore: presence ? presence.corpusHealthScore : args.blended.score,
       analysisScore: args.blended.score,                 // crawl-analysis blend (context)
       aeoScoreByEngine: presence ? presence.byEngine : args.blended.byEngine,
       engineModes: presence ? presence.engineModes : null,
