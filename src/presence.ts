@@ -20,6 +20,7 @@ import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
 import { config } from './config.js';
 import type { reducePages } from './reducer.js';
+import { deterministicScore } from './scorer.js';
 
 type Summary = ReturnType<typeof reducePages>;
 
@@ -452,25 +453,86 @@ function rate(obs: PresenceObservation[]): number {
   return Math.round((ok.reduce((s, o) => s + presenceValue(o), 0) / ok.length) * 100);
 }
 
-// Headline AXO score. The product promises live AI visibility, so the headline
-// weights retrieval (live citation) above parametric (training-data salience).
-// This prevents two parametric engines that "know" the brand from masking a
-// retrieval engine that never cites it. If only one mode ran, that mode stands
-// alone. Weights: 65% retrieval / 35% parametric.
-function headlineScore(ok: PresenceObservation[]): number {
-  const para = ok.filter(o => o.mode === 'parametric');
-  const retr = ok.filter(o => o.mode === 'retrieval');
-  const paraRate = para.length ? rate(para) : null;
-  const retrRate = retr.length ? rate(retr) : null;
-  if (paraRate != null && retrRate != null) return Math.round(0.35 * paraRate + 0.65 * retrRate);
-  return (retrRate ?? paraRate ?? 0);
+// ── Headline: AI VISIBILITY, gated by crawl reality ───────────────────────
+// The product measures whether AI can FIND, RETRIEVE, and CITE the brand's
+// real published content. That is fundamentally different from whether a model
+// happens to "know" the brand name from training (fame). The old headline
+// blended the two and let fame float thin sites into the 60s. The new headline
+// is built from three MEASURED signals, all grounded in reality:
+//
+//   1. liveCitationRate   — % of retrieval-engine answers that actually CITE a
+//                           brand URL. This is the single truest signal: it
+//                           means a live engine pulled the brand's own page.
+//   2. vocabularyCoverage — % of the six canonical buyer terms the crawled
+//                           corpus actually covers (a real crawl property).
+//   3. corpusHealth       — deterministicScore: page depth, AEO signal density,
+//                           schema. Carries the page-count ceiling.
+//
+// Parametric brand salience is REMOVED from the headline entirely and reported
+// separately as brandAwarenessScore. A site AI cannot retrieve cannot score
+// high, no matter how famous the brand is.
+//
+// Hard gates so fame can never rescue an invisible site:
+//   - If the corpus has ~no vocabulary AND ~no live citations, the site is
+//     effectively invisible to AI → headline capped very low.
+//   - The deterministic page-count ceiling still applies.
+//
+// Weights are tunable via env without code changes.
+const VIS_W_CITATION = env_num('AXO_VIS_W_CITATION', 0.55);
+const VIS_W_VOCAB    = env_num('AXO_VIS_W_VOCAB', 0.30);
+const VIS_W_CORPUS   = env_num('AXO_VIS_W_CORPUS', 0.15);
+
+function env_num(key: string, dflt: number): number {
+  const v = Number(process.env[key]);
+  return Number.isFinite(v) && v >= 0 ? v : dflt;
+}
+
+export function computeVisibility(args: {
+  liveCitationRate: number;   // 0..100  (retrievalCoverage: brand actually cited)
+  vocabularyCoverage: number; // 0..100  (mean canonical-term coverage)
+  corpusHealth: number;       // 0..100  (deterministicScore)
+  retrievalRan: boolean;      // did any retrieval engine run at all
+}): number {
+  const { liveCitationRate, vocabularyCoverage, corpusHealth, retrievalRan } = args;
+
+  // Weighted blend of the three real signals.
+  const wSum = VIS_W_CITATION + VIS_W_VOCAB + VIS_W_CORPUS || 1;
+  let score =
+    (VIS_W_CITATION * liveCitationRate +
+     VIS_W_VOCAB * vocabularyCoverage +
+     VIS_W_CORPUS * corpusHealth) / wSum;
+
+  // Invisibility gate: a site with essentially no buyer vocabulary AND
+  // essentially no live citations is invisible to AI. Cap it hard so brand
+  // fame (which is NOT in this score) cannot be inferred to rescue it.
+  if (vocabularyCoverage <= 5 && liveCitationRate < 15) {
+    score = Math.min(score, 18);
+  } else if (vocabularyCoverage <= 15 && liveCitationRate < 25) {
+    // weak-but-not-dead corpus: keep it clearly in failing territory
+    score = Math.min(score, 40);
+  }
+
+  // Corpus-health ceiling already bakes in the page-count cap from
+  // deterministicScore; never let the headline exceed it by much.
+  score = Math.min(score, corpusHealth + 12);
+
+  // If no retrieval engine ran, we cannot claim visibility at all; fall back to
+  // corpus signals only and flag low confidence by capping.
+  if (!retrievalRan) score = Math.min(score, Math.round(0.6 * corpusHealth + 0.4 * vocabularyCoverage));
+
+  return Math.max(5, Math.min(100, Math.round(score)));
 }
 
 export type PresenceReportFields = {
   // headline + per-engine (real)
-  aeoPresenceScore: number;         // citation-weighted headline
+  aeoPresenceScore: number;         // = aiVisibilityScore (kept for backcompat)
+  aiVisibilityScore: number;        // headline: can AI find/retrieve/cite you
+  brandAwarenessScore: number;      // parametric salience (fame), reported separately
+  liveCitationRate: number;         // % retrieval answers that cite a brand URL
+  vocabularyCoveragePct: number;    // mean canonical-term coverage (crawl)
+  corpusHealthScore: number;        // deterministicScore (page depth/signal/schema)
   knowledgeScore: number;           // parametric engines only (training salience)
-  citationScore: number;            // retrieval engines only (live citation)
+  citationScore: number;            // retrieval engines only (mention-weighted)
   byEngine: Record<string, number>;
   engineModes: Record<string, EngineMode>;
   enginesUsed: string[];
@@ -493,7 +555,8 @@ export type PresenceReportFields = {
 
 export function buildPresenceReportFields(
   observations: PresenceObservation[],
-  brandDomain: string
+  brandDomain: string,
+  summary?: Summary
 ): PresenceReportFields {
   const ok = observations.filter(o => o.ok);
   const engines = Array.from(new Set(ok.map(o => o.engine)));
@@ -551,12 +614,35 @@ export function buildPresenceReportFields(
   const retrievalCoverage = retrievalObs.length
     ? Math.round((brandCitedCount / retrievalObs.length) * 100) : 0;
 
-  const aeoPresenceScore = headlineScore(ok);
-  const knowledgeScore = parametricObs.length ? rate(parametricObs) : 0;
-  const citationScore = retrievalObs.length ? rate(retrievalObs) : 0;
+  // Real corpus signals (only if the crawl summary is supplied).
+  const vocabularyCoveragePct = summary ? vocabularyHeadline(summary) : 0;
+  const corpusHealthScore = summary ? deterministicScore(summary) : 0;
+
+  // Headline = AI VISIBILITY, gated by crawl reality. Fame (parametric) is NOT
+  // part of it. liveCitationRate is the truest signal of real retrievability.
+  const liveCitationRate = retrievalCoverage;
+  const aiVisibilityScore = computeVisibility({
+    liveCitationRate,
+    vocabularyCoverage: vocabularyCoveragePct,
+    corpusHealth: corpusHealthScore,
+    retrievalRan: retrievalObs.length > 0,
+  });
+
+  // Brand awareness = parametric salience, reported as its own number so the
+  // story can be: "AI knows your name (X) but cannot retrieve your site (Y)."
+  const brandAwarenessScore = parametricObs.length ? rate(parametricObs) : 0;
+
+  const knowledgeScore = brandAwarenessScore;            // alias
+  const citationScore = retrievalObs.length ? rate(retrievalObs) : 0; // mention-weighted, for engine display
+  const aeoPresenceScore = aiVisibilityScore;            // backcompat alias
 
   return {
     aeoPresenceScore,
+    aiVisibilityScore,
+    brandAwarenessScore,
+    liveCitationRate,
+    vocabularyCoveragePct,
+    corpusHealthScore,
     knowledgeScore,
     citationScore,
     byEngine,
