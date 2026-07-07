@@ -340,7 +340,7 @@ async function fetchPage(url: string, timeoutMs = 8000): Promise<CrawledPage | n
 // ── MAIN: Parallel crawl ─────────────────────────────────────────────
 
 export async function crawlSite(options: CrawlOptions): Promise<CrawledPage[]> {
-  const { startUrl, domain, maxPages, timeoutMs, batchSize = 25, maxBatches = 50 } = options;
+  const { startUrl, domain, maxPages, timeoutMs, batchSize = 25, maxBatches = 50, onProgress } = options;
   const normDomain = domain.replace(/^www\./, '');
 
   // Step 1: Sitemap discovery — owns its own 45s budget, does NOT eat into crawl time
