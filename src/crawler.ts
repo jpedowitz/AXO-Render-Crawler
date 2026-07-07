@@ -414,6 +414,10 @@ export async function crawlSite(options: CrawlOptions): Promise<CrawledPage[]> {
     const wavePages = waveResults.flat().filter((p): p is CrawledPage => p !== null);
     results.push(...wavePages);
     console.log(`[crawler] Wave ${Math.floor(wave / maxBatches) + 1}/${Math.ceil(chunks.length / maxBatches)}: ${results.length} pages`);
+    if (onProgress) {
+      try { onProgress(results.length, urlsToFetch.length); } catch { /* heartbeat is best-effort */ }
+    }
+  
   }
 
   const confidence = results.length >= 75 ? 'high' : results.length >= 30 ? 'medium' : results.length >= 10 ? 'low' : 'insufficient';
