@@ -8,7 +8,7 @@ import { blendScores, deterministicScore } from '../scorer.js';
 import { buildReport, deriveStageScores } from '../report.js';
 import { simulateCitationReadiness } from '../citation.js';
 import { maybeStorePageEmbeddings } from '../embeddings.js';
-import { event, updateJob } from '../api/jobService.js';
+import { event, updateJob, updateProgress } from '../api/jobService.js';
 import {
   buildQuerySpecs,
   measurePresence,
