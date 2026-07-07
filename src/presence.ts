@@ -8,12 +8,15 @@
 // the observations into the exact fields the report/renderer consume.
 //
 // Methodology honesty:
-//   - Claude (API) and gpt-4o-mini answer from PARAMETRIC memory: no live
-//     retrieval, no URLs. They measure brand SALIENCE in training data.
-//   - Perplexity (sonar) and Gemini (grounded) RETRIEVE live and return real
-//     citation URLs. Only these can produce a true "cited URL".
-// Every observation carries its `mode` so the report can label what each
-// engine actually measured. We never present parametric salience as citation.
+//   - All four engines now RETRIEVE live and can return real citation URLs:
+//     Claude and gpt-4o-mini via their native web-search tools, Perplexity
+//     (sonar) natively, and Gemini via grounding. As of July 2026 there is no
+//     parametric-only engine left in the default panel — every engine's score
+//     reflects live citation ability, not just training-data brand recall.
+// Every observation still carries its `mode` so the report can label what each
+// engine actually measured, and so a future engine added without search tools
+// enabled would still be correctly flagged as parametric rather than silently
+// blended in at full weight.
 // ─────────────────────────────────────────────────────────────────────────
 
 import OpenAI from 'openai';
@@ -59,9 +62,8 @@ export type EngineConfig = {
   sample: number;
 };
 
-// Default panel. Retrieval engines carry the citation claim and are sampled
-// fully; parametric engines are cheap and also run fully by default. Tune via
-// AXO_PRESENCE_PANEL env if cost/runtime needs trimming.
+// Default panel. All four engines are retrieval-based as of July 2026 — see
+// module header. Tune via AXO_PRESENCE_PANEL env if cost/runtime needs trimming.
 export const DEFAULT_PANEL: EngineConfig[] = [
   { engine: 'claude',     mode: 'retrieval', sample: 1.0 },
   { engine: 'openai',     mode: 'retrieval', sample: 1.0 },
@@ -213,6 +215,7 @@ async function askClaude(q: string): Promise<RawAnswer> {
     system: ASK_SYSTEM,
     messages: [{ role: 'user', content: q }],
     tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 5 }],
+    tool_choice: { type: 'tool', name: 'web_search' }, // force search — don't let the model opt out
   });
 
   const citedUrls = new Set<string>();
@@ -241,6 +244,7 @@ async function askOpenAI(q: string): Promise<RawAnswer> {
     instructions: ASK_SYSTEM,
     input: q,
     tools: [{ type: 'web_search_preview' }],
+    tool_choice: { type: 'web_search_preview' }, // force search — don't let the model opt out
     temperature: 0,
     max_output_tokens: 800,
   });
@@ -592,11 +596,11 @@ export type PresenceReportFields = {
   // headline + per-engine (real)
   aeoPresenceScore: number;         // = aiVisibilityScore (kept for backcompat)
   aiVisibilityScore: number;        // headline: can AI find/retrieve/cite you
-  brandAwarenessScore: number;      // parametric salience (fame), reported separately
+  brandAwarenessScore: number;      // brand recall/prominence across all engines, reported separately from citation
   liveCitationRate: number;         // % retrieval answers that cite a brand URL
   vocabularyCoveragePct: number;    // mean canonical-term coverage (crawl)
   corpusHealthScore: number;        // deterministicScore (page depth/signal/schema)
-  knowledgeScore: number;           // parametric engines only (training salience)
+  knowledgeScore: number;           // alias of brandAwarenessScore
   citationScore: number;            // retrieval engines only (mention-weighted)
   byEngine: Record<string, number>;
   engineModes: Record<string, EngineMode>;
@@ -674,7 +678,6 @@ export function buildPresenceReportFields(
     .sort((a, b) => b.mentions - a.mentions);
 
   const retrievalObs = ok.filter(o => o.mode === 'retrieval');
-  const parametricObs = ok.filter(o => o.mode === 'parametric');
   const brandCitedCount = retrievalObs.filter(o => o.brandCited).length;
   const retrievalCoverage = retrievalObs.length
     ? Math.round((brandCitedCount / retrievalObs.length) * 100) : 0;
@@ -693,9 +696,14 @@ export function buildPresenceReportFields(
     retrievalRan: retrievalObs.length > 0,
   });
 
-  // Brand awareness = parametric salience (FAME), its own number so the story
-  // can be: "AI knows your name (X) but cannot retrieve your site (Y)."
-  const brandAwarenessScore = parametricObs.length ? recallRate(parametricObs) : 0;
+  // Brand awareness = brand recall/prominence across ALL engines, its own number
+  // so the story can be: "AI knows your name (X) but cannot retrieve your site (Y)."
+  // Previously this was parametric-only; as of July 2026 every engine in the
+  // default panel does live retrieval, so restricting to parametric observations
+  // would always read zero. recallValue() only reads prominence, never citation,
+  // so this stays a distinct axis from aiVisibilityScore even computed across all
+  // observations — an engine can name-drop the brand with zero live citation.
+  const brandAwarenessScore = ok.length ? recallRate(ok) : 0;
 
   const knowledgeScore = brandAwarenessScore;            // alias
   const citationScore = retrievalObs.length ? rate(retrievalObs) : 0; // visibility of retrieval engines
