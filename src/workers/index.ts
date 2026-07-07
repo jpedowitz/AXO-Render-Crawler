@@ -582,3 +582,29 @@ new Worker('axo-diagnostic', async bullJob => {
 }, { connection: { url: config.redisUrl, maxRetriesPerRequest: null }, concurrency: config.jobConcurrency });
 
 console.log(`[AXO worker] running with concurrency=${config.jobConcurrency}`);
+const STALE_THRESHOLD_MS = Number(process.env.AXO_STALE_JOB_MS || 15 * 60 * 1000);
+const STALE_CHECK_INTERVAL_MS = Number(process.env.AXO_STALE_CHECK_INTERVAL_MS || 2 * 60 * 1000);
+
+async function sweepStaleJobs() {
+  try {
+    const stale = await query<{ id: string; domain: string }>(
+      `update axo_jobs
+         set status = 'failed', stage = 'failed',
+             error = 'stalled: no progress for ' || $1 || 'ms — marked failed by watchdog',
+             completed_at = now(), updated_at = now()
+       where status = 'running'
+         and updated_at < now() - ($1::text || ' milliseconds')::interval
+       returning id, domain`,
+      [STALE_THRESHOLD_MS]
+    );
+    for (const stalled of stale) {
+      console.warn(`[watchdog] Marked stale job failed: ${stalled.id} (${stalled.domain})`);
+      await event(stalled.id, 'job.stalled', { thresholdMs: STALE_THRESHOLD_MS }).catch(() => undefined);
+    }
+  } catch (err: any) {
+    console.warn(`[watchdog] sweep failed: ${err?.message}`);
+  }
+}
+
+setInterval(sweepStaleJobs, STALE_CHECK_INTERVAL_MS);
+sweepStaleJobs();
