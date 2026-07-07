@@ -303,6 +303,7 @@ async function runDiagnostic(jobId: string) {
     timeoutMs: config.crawlTimeoutMs,
     concurrency: config.crawlConcurrency,
     perHostConcurrency: config.crawlPerHostConcurrency,
+    onProgress: (fetched, total) => { updateProgress(jobId, fetched, total).catch(() => undefined); },
   });
 
   await annotatePageChangesAndUpdateCache(job.domain, pages);
