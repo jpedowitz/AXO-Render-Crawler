@@ -80,6 +80,14 @@ export async function updateJob(jobId: string, patch: Record<string, unknown>) {
   const sets = keys.map((k, i) => `${camelToSnake(k)} = $${i + 2}`).join(', ');
   await query(`update axo_jobs set ${sets}, updated_at = now() where id = $1`, [jobId, ...keys.map(k => patch[k])]);
 }
+export async function updateProgress(jobId: string, pagesFetched: number, totalUrls?: number) {
+  const patch: Record<string, unknown> = { pagesFetched };
+  if (totalUrls != null) patch.totalUrls = totalUrls;
+  await query(
+    `update axo_jobs set metadata = metadata || $2::jsonb, updated_at = now() where id = $1`,
+    [jobId, JSON.stringify(patch)]
+  );
+}
 
 function camelToSnake(s: string) {
   return s.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
