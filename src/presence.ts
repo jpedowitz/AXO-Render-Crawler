@@ -63,10 +63,10 @@ export type EngineConfig = {
 // fully; parametric engines are cheap and also run fully by default. Tune via
 // AXO_PRESENCE_PANEL env if cost/runtime needs trimming.
 export const DEFAULT_PANEL: EngineConfig[] = [
-  { engine: 'claude',     mode: 'parametric', sample: 1.0 },
-  { engine: 'openai',     mode: 'parametric', sample: 1.0 },
-  { engine: 'perplexity', mode: 'retrieval',  sample: 1.0 },
-  { engine: 'gemini',     mode: 'retrieval',  sample: 1.0 },
+  { engine: 'claude',     mode: 'retrieval', sample: 1.0 },
+  { engine: 'openai',     mode: 'retrieval', sample: 1.0 },
+  { engine: 'perplexity', mode: 'retrieval', sample: 1.0 },
+  { engine: 'gemini',     mode: 'retrieval', sample: 1.0 },
 ];
 
 // ── Query spec builder ───────────────────────────────────────────────────
@@ -208,24 +208,57 @@ async function askClaude(q: string): Promise<RawAnswer> {
   const client = new Anthropic({ apiKey: config.anthropicApiKey });
   const resp = await client.messages.create({
     model: 'claude-haiku-4-5-20251001',
-    max_tokens: 500,
+    max_tokens: 800,
     temperature: 0,
     system: ASK_SYSTEM,
     messages: [{ role: 'user', content: q }],
+    tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 5 }],
   });
-  const text = resp.content.map((c: any) => (c.type === 'text' ? c.text : '')).join('\n');
-  return { text, citedUrls: [] }; // parametric — no live URLs
+
+  const citedUrls = new Set<string>();
+  const textParts: string[] = [];
+
+  for (const block of resp.content) {
+    if (block.type === 'text') {
+      textParts.push(block.text);
+      for (const citation of block.citations || []) {
+        if (citation.type === 'web_search_result_location') citedUrls.add(citation.url);
+      }
+    } else if (block.type === 'web_search_tool_result' && Array.isArray(block.content)) {
+      for (const result of block.content) {
+        if (result.type === 'web_search_result') citedUrls.add(result.url);
+      }
+    }
+  }
+
+  return { text: textParts.join('\n'), citedUrls: [...citedUrls] };
 }
 
 async function askOpenAI(q: string): Promise<RawAnswer> {
   const client = new OpenAI({ apiKey: config.openaiApiKey });
-  const resp = await client.chat.completions.create({
+  const resp = await client.responses.create({
     model: 'gpt-4o-mini',
-    max_tokens: 500,
+    instructions: ASK_SYSTEM,
+    input: q,
+    tools: [{ type: 'web_search_preview' }],
     temperature: 0,
-    messages: [{ role: 'system', content: ASK_SYSTEM }, { role: 'user', content: q }],
+    max_output_tokens: 800,
   });
-  return { text: resp.choices[0]?.message?.content || '', citedUrls: [] }; // parametric
+
+  const citedUrls = new Set<string>();
+  for (const item of resp.output) {
+    if (item.type === 'message') {
+      for (const c of item.content) {
+        if (c.type === 'output_text') {
+          for (const ann of c.annotations) {
+            if (ann.type === 'url_citation') citedUrls.add(ann.url);
+          }
+        }
+      }
+    }
+  }
+
+  return { text: resp.output_text || '', citedUrls: [...citedUrls] };
 }
 
 async function askPerplexity(q: string): Promise<RawAnswer> {
