@@ -40,6 +40,7 @@ export interface CrawlOptions {
   perHostConcurrency: number;
   batchSize?: number;
   maxBatches?: number;
+  onProgress?: (pagesFetched: number, totalUrls: number) => void;
 }
 
 // ── User-Agent ────────────────────────────────────────────────────────
