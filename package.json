@@ -12,7 +12,7 @@
     "db:migrate": "psql \"$DATABASE_URL\" -f db/schema.sql"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.32.1",
+    "@anthropic-ai/sdk": "^0.110.0",
     "@fastify/cors": "^10.0.1",
     "bullmq": "^5.34.2",
     "cheerio": "^1.0.0",
