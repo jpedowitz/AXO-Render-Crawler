@@ -288,7 +288,10 @@ async function askPerplexity(q: string): Promise<RawAnswer> {
 }
 
 async function askGemini(q: string): Promise<RawAnswer> {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${config.geminiApiKey}`;
+  // gemini-2.5-flash had a shutdown date of June 17 2026 (Google's own
+  // deprecations page) — it may already be off. gemini-3.5-flash is the
+  // current GA flagship as of Google's July 2026 changelog.
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${config.geminiApiKey}`;
   const resp = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -300,12 +303,35 @@ async function askGemini(q: string): Promise<RawAnswer> {
     }),
   });
   const json: any = await resp.json();
+
+  // A deprecated/invalid model, bad key, or quota error returns {error:{...}}
+  // with no `candidates` at all. Previously this silently fell through to an
+  // empty text/citedUrls pair, which scored identically to "searched and found
+  // nothing" — a real API failure and a real content gap look the same in the
+  // report. Surface it as a genuine failure instead so it's excluded from
+  // scoring rather than quietly dragging the engine's score down.
+  if (!resp.ok || json.error) {
+    throw new Error(`Gemini API error: ${json.error?.message || resp.status}`);
+  }
+
   const cand = json.candidates?.[0];
   const text = cand?.content?.parts?.map((p: any) => p.text || '').join('\n') || '';
-  // grounding metadata carries the real retrieved URLs
-  const chunks = cand?.groundingMetadata?.groundingChunks || [];
+  // grounding metadata carries the real retrieved sources. IMPORTANT: per
+  // Google's own current docs (ai.google.dev/gemini-api/docs/generate-content/
+  // google-search, checked July 2026), groundingChunks[].web.uri is an opaque
+  // vertexaisearch.cloud.google.com REDIRECT link, not the actual source URL —
+  // hostOf(uri) will never match a real brand domain no matter what was found.
+  // The real source domain lives in web.title instead (Google's own example
+  // shows title values like "aljazeera.com", "uefa.com" — bare domains, not
+  // headlines). Match on title first; fall back to uri only if title is ever
+  // absent, purely so brandCited isn't silently starved of any signal at all.
+  const groundingMeta = cand?.groundingMetadata;
+  const chunks = groundingMeta?.groundingChunks || [];
+  if (groundingMeta?.webSearchQueries?.length && chunks.length === 0) {
+    console.warn('[askGemini] grounding ran (webSearchQueries present) but groundingChunks was empty — check API response shape');
+  }
   const citedUrls: string[] = chunks
-    .map((c: any) => c?.web?.uri)
+    .map((c: any) => c?.web?.title || c?.web?.uri)
     .filter(Boolean)
     .map((u: string) => String(u));
   return { text, citedUrls };
