@@ -2652,11 +2652,20 @@ function composeNarrative(report) {
       : `Your biggest single gap is **${low.term}** at ${low.coverage}% coverage. That is the term most likely to surrender a whole query category to competitors.`;
   }
 
-  // Chapter 02 — stage presence
+  // Chapter 02 — stage presence. "Weakest" is only worth calling a gap when it's
+  // actually weak in absolute terms — five strong stages will always produce a
+  // relative "weakest" one, and calling an 88% stage "where you're hardest to
+  // find" is misleading, not diagnostic.
+  const STRONG_STAGE_FLOOR = 70;
   if (strongest && weakest) {
     n.ch2AwareWin = `Your strongest stage is **${stageName[strongest[0]]}** at ${strongest[1]}%. AI surfaces you most reliably there.`;
-    n.ch2CompareGap = `Your weakest stage is **${stageName[weakest[0]]}** at ${weakest[1]}%, the point in the journey where you are hardest to find.`;
-    n.ch2Sowhat = `Concentrate new content on the ${stageName[weakest[0]]} stage. That is where added presence converts directly into buyer reach.`;
+    if (weakest[1] >= STRONG_STAGE_FLOOR) {
+      n.ch2CompareGap = `Even your **${stageName[weakest[0]]}** stage, the relative low point, still measures **${weakest[1]}%** — AI reliably finds and cites you there too.`;
+      n.ch2Sowhat = `Hold this lead across every stage by keeping content fresh and citable; there's no real gap here to chase.`;
+    } else {
+      n.ch2CompareGap = `Your weakest stage is **${stageName[weakest[0]]}** at ${weakest[1]}%, the point in the journey where you are hardest to find.`;
+      n.ch2Sowhat = `Concentrate new content on the ${stageName[weakest[0]]} stage. That is where added presence converts directly into buyer reach.`;
+    }
   }
 
   // Chapter 03 — persona variance, conditional on real spread
@@ -3113,6 +3122,11 @@ function renderAll() {
     const strongStages = stageNames.filter((st, i) => stageVals[i] >= maxVal - 5);
     const avgStage = Math.round(stageVals.reduce((a, b) => a + b, 0) / stageVals.length);
     const flat = stageSpread <= 8; // all stages clustered → no meaningful per-stage gap
+    // A big spread with a floor that's still strong (say 88% to 98%) is normal
+    // variance between five strong measurements, not a gap. Only call something
+    // a gap when the floor itself is actually weak.
+    const STRONG_STAGE_FLOOR = 70;
+    const allStrong = minVal >= STRONG_STAGE_FLOOR;
     const ch2Title = document.getElementById('ch2Title');
     const ch2Lede = document.getElementById('ch2Lede');
     if (ch2Title) {
@@ -3120,6 +3134,11 @@ function renderAll() {
         const band = avgStage >= 60 ? 'consistently across the funnel' : avgStage >= 40 ? 'evenly, but with room across the funnel' : 'thinly and evenly across every stage';
         ch2Title.textContent = `AI presence is ${avgStage >= 60 ? 'steady' : 'uniformly low'} across your buyer journey.`;
         ch2Lede.innerHTML = `We tested <strong>100 real buyer questions</strong> across all five journey stages. Your presence sits in a tight band around <strong>${avgStage}%</strong>, ${band}. There is no single weak stage to target; the lift is broad.`;
+      } else if (allStrong) {
+        const weakStr = weakStages.slice(0, 2).join(' and ');
+        const strongStr = strongStages.slice(0, 2).join(' and ');
+        ch2Title.textContent = `AI presence is strong across your entire buyer journey.`;
+        ch2Lede.innerHTML = `We tested <strong>100 real buyer questions</strong> across all five journey stages. Every stage measures <strong>${minVal}% or higher</strong> — AI reliably finds and cites you from ${weakStr} through ${strongStr}. There's no real gap to close here; the opportunity is holding this lead.`;
       } else if (weakStages.length > 0 && strongStages.length > 0 && weakStages[0] !== strongStages[0]) {
         const weakStr = weakStages.slice(0, 2).join(' and ');
         const strongStr = strongStages.slice(0, 2).join(' and ');
@@ -3131,13 +3150,19 @@ function renderAll() {
       }
     }
 
-    // Pull quote names the REAL weakest stage, not a hardcoded "Compare".
+    // Pull quote names the REAL weakest stage — but only frames it as a gap
+    // when that stage is genuinely weak. Don't manufacture urgency around a
+    // stage that's still scoring 70+.
     const ch2Pull = document.getElementById('ch2PullQuote');
     if (ch2Pull) {
-      const weakIdx = stageVals.indexOf(minVal);
-      const weakName = stageNames[weakIdx] || 'Compare';
       const cleanSite = String(G.site || '').replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/.*$/, '') || 'this site';
-      ch2Pull.innerHTML = `"The ${weakName} stage is where buyers decide between you and the alternative. It's also where <em>${cleanSite} is least present</em>."`;
+      if (flat || allStrong) {
+        ch2Pull.innerHTML = `"AI recognizes and cites <em>${cleanSite}</em> consistently, from a buyer's first exposure through their final decision."`;
+      } else {
+        const weakIdx = stageVals.indexOf(minVal);
+        const weakName = stageNames[weakIdx] || 'Compare';
+        ch2Pull.innerHTML = `"The ${weakName} stage is where buyers decide between you and the alternative. It's also where <em>${cleanSite} is least present</em>."`;
+      }
     }
 
     // Update stage distribution bar with inverse-weighted query allocation
